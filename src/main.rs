@@ -7,6 +7,7 @@ mod indent;
 mod lines;
 mod pattern;
 mod perf;
+mod session;
 mod structure;
 mod syntax;
 use core::{Content, History, Newline, WhitespaceEdit};
@@ -95,6 +96,7 @@ enum FilesEvent {
     Done(Result<filesearch::Report, String>),
 }
 struct App {
+    session: Option<session::Service>,
     split_width: usize,
     about_open: bool,
     files_tx: mpsc::Sender<FilesEvent>,
@@ -137,6 +139,117 @@ struct App {
     repaint: egui::Context,
 }
 impl App {
+    fn snapshot(&self) -> session::Snapshot {
+        session::Snapshot {
+            tabs: self
+                .docs
+                .iter()
+                .map(|d| {
+                    let length = d.content.text.chars().count();
+                    session::Tab {
+                        path: d.path.clone(),
+                        content: d.content.clone(),
+                        saved: d.saved.clone(),
+                        cursor: d.cursor.min(length),
+                        selected: (d.selected.0.min(length), d.selected.1.min(length)),
+                    }
+                })
+                .collect(),
+            active: self.active,
+        }
+    }
+    fn configure_session(&mut self, path: PathBuf) {
+        self.session = Some(session::Service::new(
+            path,
+            self.snapshot(),
+            self.repaint.clone(),
+        ));
+    }
+    fn restore(&mut self, snapshot: session::Snapshot) {
+        self.docs = snapshot
+            .tabs
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let mut d = Document::new(i as u64 + 1, t.path, t.content);
+                d.saved = t.saved;
+                d.cursor = t.cursor;
+                d.selected = t.selected;
+                d
+            })
+            .collect();
+        self.active = snapshot.active;
+        self.next_id = self.docs.len() as u64 + 1;
+        self.selection = Some(self.docs[self.active].selected);
+        self.match_range = None;
+        self.match_signature = None;
+    }
+    fn poll_session(&mut self, ctx: &egui::Context) {
+        let Some(mut service) = self.session.take() else {
+            return;
+        };
+        while let Ok(event) = service.rx.try_recv() {
+            match event {
+                session::Event::Loaded(result) => {
+                    service.loading = false;
+                    match result {
+                        Ok(snapshot) if self.snapshot() == service.initial => {
+                            if let Some(snapshot) = snapshot {
+                                self.restore(snapshot.clone());
+                                service.persisted = Some(snapshot);
+                                self.message = "已還原工作階段；原始文件未寫入".into();
+                            }
+                        }
+                        Ok(_) => {
+                            service.blocked = true;
+                            self.message =
+                                "載入期間已有編輯；停止工作階段覆寫，請重新啟動還原".into();
+                        }
+                        Err(error) => {
+                            service.blocked = true;
+                            self.message = format!("工作階段停用：{error}");
+                        }
+                    }
+                }
+                session::Event::Saved(snapshot, result) => {
+                    service.busy = false;
+                    match result {
+                        Ok(()) => {
+                            service.persisted = Some(snapshot);
+                            self.message = "工作階段快照已保存（原檔未儲存）".into();
+                        }
+                        Err(error) => {
+                            service.blocked = true;
+                            service.exit = false;
+                            self.message = format!("快照保存失敗，前次快照保留：{error}");
+                        }
+                    }
+                }
+            }
+        }
+        if !service.loading
+            && !service.blocked
+            && !service.busy
+            && (service.exit || std::time::Instant::now() >= service.next)
+        {
+            let snapshot = self.snapshot();
+            if service.persisted.as_ref() != Some(&snapshot) {
+                if service.tx.send(snapshot).is_ok() {
+                    service.busy = true;
+                } else {
+                    service.blocked = true;
+                    service.exit = false;
+                    self.message = "工作階段背景程序已停止".into();
+                }
+            } else if service.exit && !self.busy {
+                self.force_exit = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            service.next = std::time::Instant::now() + Duration::from_secs(1);
+        }
+        ctx.request_repaint_after(Duration::from_millis(250));
+        self.session = Some(service);
+    }
     fn indent_action(&mut self, action: i8) {
         let d = &mut self.docs[self.active];
         let before = d.content.clone();
@@ -380,6 +493,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let (files_tx, files_rx) = mpsc::channel();
         Self {
+            session: None,
             split_width: 80,
             about_open: false,
             files_tx,
@@ -924,6 +1038,7 @@ impl App {
 }
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_session(ctx);
         ctx.set_visuals(if self.dark {
             egui::Visuals::dark()
         } else {
@@ -936,13 +1051,17 @@ impl eframe::App for App {
                 let doc = &self.docs[self.active];
                 let language =
                     syntax::resolve(doc.path.as_deref(), &doc.content.text, doc.language);
-                if self.startup_report.is_some()
+                if self.session.as_ref().is_none_or(|s| {
+                    !s.loading
+                        && !s.busy
+                        && (s.blocked || s.persisted.as_ref() == Some(&self.snapshot()))
+                }) && (self.startup_report.is_some()
                     || (!self.busy
                         && self.files_cancel.is_none()
                         && !self
                             .syntax
                             .status(doc.id, &doc.content.text, language, self.dark)
-                            .contains("背景"))
+                            .contains("背景")))
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
                 } else {
@@ -994,12 +1113,16 @@ impl eframe::App for App {
         if self.busy || self.files_cancel.is_some() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
-        if ctx.input(|i| i.viewport().close_requested())
-            && !self.force_exit
-            && (self.busy || self.docs.iter().any(Document::dirty))
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.exit = true;
+        if ctx.input(|i| i.viewport().close_requested()) && !self.force_exit {
+            if self.busy || self.docs.iter().any(Document::dirty) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.exit = true;
+            } else if let Some(service) = &mut self.session
+                && !service.blocked
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                service.exit = true;
+            }
         }
         let mut new = false;
         let mut open = false;
@@ -1580,7 +1703,7 @@ impl eframe::App for App {
                 .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
                 .open(&mut self.about_open)
                 .show(ctx, |ui| {
-                    ui.strong("墨頁 InkPage 0.6");
+                    ui.strong(format!("墨頁 InkPage {}", env!("CARGO_PKG_VERSION")));
                     ui.label("緊湊的桌面文字編輯器 · Windows / Linux");
                     ui.label("原創程式 MIT；致敬傳統編輯器工作流程。");
                     ui.label("技術與相依授權見 README / THIRD_PARTY_LICENSES.md。");
@@ -1627,12 +1750,38 @@ impl eframe::App for App {
                 .show(ctx, |ui| {
                     ui.label("仍有未儲存變更或檔案操作。請先儲存需要的分頁。");
                     ui.horizontal(|ui| {
+                        if self
+                            .session
+                            .as_ref()
+                            .is_some_and(|s| !s.blocked && !s.loading)
+                            && ui
+                                .add_enabled(!self.busy, egui::Button::new("保留工作階段並結束"))
+                                .clicked()
+                        {
+                            if let Some(service) = &mut self.session {
+                                service.exit = true;
+                            }
+                            self.exit = false;
+                        }
                         if ui
                             .add_enabled(!self.busy, egui::Button::new("放棄全部並結束"))
                             .clicked()
                         {
-                            self.force_exit = true;
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            if let Some(service) = &mut self.session
+                                && !service.blocked
+                                && !service.loading
+                            {
+                                for d in &mut self.docs {
+                                    d.content = d.saved.clone();
+                                    d.cursor = 0;
+                                    d.selected = (0, 0);
+                                }
+                                service.exit = true;
+                                self.exit = false;
+                            } else {
+                                self.force_exit = true;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
                         }
                         if ui.button("返回編輯").clicked() {
                             self.exit = false;
@@ -1845,6 +1994,33 @@ fn main() -> eframe::Result {
                         app.search = false;
                         app.show_eol = true;
                     }
+                    "session-save" => {
+                        app.docs[0].path = args
+                            .iter()
+                            .position(|a| a == "--qa-original")
+                            .and_then(|i| args.get(i + 1))
+                            .map(PathBuf::from);
+                        app.docs[0].content = Content {
+                            text: "中文🙂 工作階段\n未儲存內容\n".into(),
+                            bom: true,
+                            newline: Newline::Crlf,
+                        };
+                        app.docs[0].saved = Content {
+                            text: "original\n".into(),
+                            ..Default::default()
+                        };
+                        app.docs[1].content.text = "第二個未命名分頁 🙂".into();
+                        app.active = 0;
+                        app.docs[0].selected = (0, 3);
+                        app.docs[0].cursor = 3;
+                        app.selection = Some((0, 3));
+                        app.show_eol = true;
+                        app.search = false;
+                    }
+                    "session-restore" => {
+                        app.search = false;
+                        app.show_eol = true;
+                    }
                     "indent" => {
                         app.docs[0].content = Content {
                             text: "fn 範例() {\n中文🙂\n尾\n}\n".into(),
@@ -1939,6 +2115,25 @@ fn main() -> eframe::Result {
                     _ => {}
                 }
             }
+            if !args.iter().any(|s| s == "--no-session") {
+                let explicit = args
+                    .iter()
+                    .position(|s| s == "--session")
+                    .and_then(|i| args.get(i + 1))
+                    .map(PathBuf::from);
+                let path = explicit.or_else(|| {
+                    if app.capture.is_none() {
+                        std::env::current_exe()
+                            .ok()
+                            .map(|p| p.with_file_name("InkPage.session"))
+                    } else {
+                        None
+                    }
+                });
+                if let Some(path) = path {
+                    app.configure_session(path);
+                }
+            }
             Ok(Box::new(app))
         }),
     )
@@ -1947,6 +2142,55 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod app_tests {
     use super::*;
+    #[test]
+    fn session_worker_restart_restores_multiple_dirty_tabs_without_writing_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("InkPage.session");
+        let original = dir.path().join("original.txt");
+        std::fs::write(&original, b"original\n").unwrap();
+        let mut a = app();
+        a.docs[0].path = Some(original.clone());
+        a.docs[0].saved.text = "original\n".into();
+        a.docs[0].content = Content {
+            text: "中文🙂\n未存".into(),
+            bom: true,
+            newline: Newline::Crlf,
+        };
+        a.new_doc();
+        a.docs[1].content.text = "第二個🙂".into();
+        a.docs[1].selected = (1, 3);
+        a.docs[1].cursor = 3;
+        let expected = a.snapshot();
+        a.configure_session(path.clone());
+        let ctx = a.repaint.clone();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            a.poll_session(&ctx);
+            if a.session.as_ref().unwrap().persisted.as_ref() == Some(&expected) {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(a);
+        assert!(!path.with_extension("session.lock").exists());
+        std::fs::write(&original, b"external change\n").unwrap();
+        let mut b = app();
+        b.configure_session(path);
+        let ctx = b.repaint.clone();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            b.poll_session(&ctx);
+            if !b.session.as_ref().unwrap().loading {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(b.snapshot(), expected);
+        assert!(b.docs.iter().all(Document::dirty));
+        assert_eq!(std::fs::read(&original).unwrap(), b"external change\n");
+    }
     #[test]
     fn indent_and_enter_are_undoable_and_bracket_results_are_snapshot_guarded() {
         let mut a = app();
@@ -2318,6 +2562,7 @@ mod app_tests {
         let (tx, rx) = mpsc::channel();
         let (files_tx, files_rx) = mpsc::channel();
         App {
+            session: None,
             split_width: 80,
             about_open: false,
             files_tx,

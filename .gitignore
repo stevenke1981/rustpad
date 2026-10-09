@@ -1,4 +1,7 @@
 /target
+/qa/session-fixtures/
+*.session
+*.session.lock
 
 /metadata-windows.json
 /qa/*.log

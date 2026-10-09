@@ -111,6 +111,9 @@ pub fn atomic_save(path: &Path, content: &Content) -> Result<(), String> {
     let bytes = encode(content)?;
     atomic_write(path, &bytes, |file, bytes| file.write_all(bytes)).map_err(|e| e.to_string())
 }
+pub fn atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    atomic_write(path, bytes, |file, bytes| file.write_all(bytes)).map_err(|e| e.to_string())
+}
 fn atomic_write(
     path: &Path,
     bytes: &[u8],
