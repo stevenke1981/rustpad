@@ -1,6 +1,6 @@
 # 墨頁 InkPage
 
-0.5 新增分頁書籤導航與 Unicode 字素安全的行合併／分割。固定核心覆蓋率 25/36（69.4%），不是完整 Notepad++ 產品百分比；[功能矩陣](ALIGNMENT.md)、[操作與限制](DIFF-0.5.md)、[本輪實測](PERFORMANCE-0.5.md)。
+0.6 新增背景括號跳轉、選取行縮排與 Enter 自動縮排。固定核心覆蓋率 27/36（75.0%），不是完整 Notepad++ 產品百分比；[功能矩陣](ALIGNMENT.md)、[操作與限制](DIFF-0.6.md)、[本輪實測](PERFORMANCE-0.5.md)。
 
 以 Rust / eframe-egui 編寫的原創桌面文字編輯器，致敬 Notepad++ 的緊湊傳統桌面工作流程。選單、工具列、多分頁、行號、搜尋取代、亮暗主題、繁中介面；無 WebView。InkPage 原創程式為 MIT，未複製 Notepad++ GPL 程式、標誌或素材。
 
@@ -35,3 +35,5 @@ Windows 需 Rust MSVC、MSVC build tools、Windows SDK。Linux 需 C compiler、
 0.5 快捷鍵（編輯区焦點）：Ctrl+F2 切換目前行書籤，F2 / Shift+F2 下一／上一書籤，Ctrl+J 合併選取行，Ctrl+Shift+J 按設定字素寬度分割選取／目前行；選單也可操作。書籤不改 dirty，僅保存在目前分頁生命週期；無法可靠對應的多行改寫清除該區書籤，undo 不復活已清除標記。
 
 「墨頁」取自書寫與頁面；名稱從開發工作名 RustPad 改為「墨頁 InkPage」，產品名與可攜檔案使用 InkPage。為保留連結／工具相容，GitHub URL、checkout 資料夾、Cargo crate 與 source build binary 仍是 rustpad；Windows 可攜包為 `InkPage/InkPage.exe`。未移動使用者檔案或設定；沒有需迁移的新增持久設定。名稱不主張商標獨占，本專案未做完整商標查核。
+
+0.6：Ctrl+B 跳至游標處／前一字元的配對括號；語法模式忽略 string/comment scope。編輯選單增加／減少縮排；跨行選取 Tab 增加、Shift+Tab 減少；Enter 延续目前行 ASCII 空格／Tab 前綴。IME 組字事件交由既有 widget，未宣稱實測。

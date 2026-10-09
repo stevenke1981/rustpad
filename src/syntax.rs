@@ -219,6 +219,44 @@ pub struct Engine {
     dark: Theme,
 }
 impl Engine {
+    pub fn code_mask(&self, text: &str, language: Language) -> Result<Vec<bool>, String> {
+        use syntect::parsing::{ParseState, Scope, ScopeStack};
+        let mut mask = vec![true; text.len()];
+        if language == Language::Plain {
+            return Ok(mask);
+        }
+        let grammar = self
+            .syntaxes
+            .find_syntax_by_extension(language.extension())
+            .ok_or("找不到語法規則")?;
+        let mut parser = ParseState::new(grammar);
+        let mut stack = ScopeStack::new();
+        let string = Scope::new("string").map_err(|e| e.to_string())?;
+        let comment = Scope::new("comment").map_err(|e| e.to_string())?;
+        let mut base = 0;
+        for line in LinesWithEndings::from(text) {
+            let mut previous = 0;
+            for (position, operation) in parser
+                .parse_line(line, &self.syntaxes)
+                .map_err(|e| e.to_string())?
+            {
+                let code = !stack
+                    .scopes
+                    .iter()
+                    .any(|scope| string.is_prefix_of(*scope) || comment.is_prefix_of(*scope));
+                mask[base + previous..base + position].fill(code);
+                stack.apply(&operation).map_err(|e| e.to_string())?;
+                previous = position;
+            }
+            let code = !stack
+                .scopes
+                .iter()
+                .any(|scope| string.is_prefix_of(*scope) || comment.is_prefix_of(*scope));
+            mask[base + previous..base + line.len()].fill(code);
+            base += line.len();
+        }
+        Ok(mask)
+    }
     pub fn new() -> Self {
         Self {
             syntaxes: two_face::syntax::extra_newlines(),

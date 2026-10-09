@@ -3,9 +3,11 @@ mod actions;
 mod bookmarks;
 mod core;
 mod filesearch;
+mod indent;
 mod lines;
 mod pattern;
 mod perf;
+mod structure;
 mod syntax;
 use core::{Content, History, Newline, WhitespaceEdit};
 use eframe::egui::{
@@ -34,6 +36,7 @@ struct Document {
     highlight_cache: syntax::LayoutCache,
     language: Option<syntax::Language>,
     bookmarks: bookmarks::Bookmarks,
+    composing: bool,
 }
 impl Document {
     fn new(id: u64, path: Option<PathBuf>, content: Content) -> Self {
@@ -48,6 +51,7 @@ impl Document {
             highlight_cache: Default::default(),
             language: None,
             bookmarks: Default::default(),
+            composing: false,
         }
     }
     fn dirty(&self) -> bool {
@@ -66,6 +70,13 @@ impl Document {
     }
 }
 enum ResultEvent {
+    Bracket(
+        u64,
+        Content,
+        Option<syntax::Language>,
+        usize,
+        Result<Option<usize>, String>,
+    ),
     Navigate(filesearch::Hit, Result<Content, String>),
     Open(Result<Option<(PathBuf, Content)>, String>),
     Save(u64, Content, Result<Option<PathBuf>, String>, bool),
@@ -126,6 +137,53 @@ struct App {
     repaint: egui::Context,
 }
 impl App {
+    fn indent_action(&mut self, action: i8) {
+        let d = &mut self.docs[self.active];
+        let before = d.content.clone();
+        let unit = if self.insert_spaces {
+            " ".repeat(self.tab_width)
+        } else {
+            "\t".into()
+        };
+        let result = if action == 0 {
+            indent::enter(&mut d.content, d.selected)
+        } else {
+            indent::lines(&mut d.content, d.selected, &unit, action < 0)
+        };
+        match result {
+            Ok(range) => {
+                if before != d.content {
+                    d.history.record(before);
+                }
+                d.bookmarks.sync(&d.content.text);
+                d.selected = range;
+                d.cursor = range.1;
+                self.selection = Some(range);
+                self.match_range = None;
+            }
+            Err(error) => self.message = error,
+        }
+    }
+    fn jump_bracket(&mut self) {
+        if self.busy {
+            return;
+        }
+        let d = &self.docs[self.active];
+        let id = d.id;
+        let before = d.content.clone();
+        let manual = d.language;
+        let language = syntax::resolve(d.path.as_deref(), &before.text, manual);
+        let cursor = d.cursor;
+        let tx = self.tx.clone();
+        let ctx = self.repaint.clone();
+        self.busy = true;
+        self.message = "背景分析括號中".into();
+        std::thread::spawn(move || {
+            let result = structure::matching(&before.text, language, cursor);
+            let _ = tx.send(ResultEvent::Bracket(id, before, manual, cursor, result));
+            ctx.request_repaint();
+        });
+    }
     fn line_transform(&mut self, width: Option<usize>) {
         let d = &mut self.docs[self.active];
         d.bookmarks.sync(&d.content.text);
@@ -747,6 +805,27 @@ impl App {
         while let Ok(event) = self.rx.try_recv() {
             self.busy = false;
             match event {
+                ResultEvent::Bracket(id, before, language, cursor, result) => {
+                    let d = &mut self.docs[self.active];
+                    if d.id != id
+                        || d.content != before
+                        || d.language != language
+                        || d.cursor != cursor
+                    {
+                        self.message = "括號分析已過期，請重新操作".into();
+                        continue;
+                    }
+                    match result {
+                        Ok(Some(target)) => {
+                            d.selected = (target, target + 1);
+                            d.cursor = target + 1;
+                            self.selection = Some(d.selected);
+                            self.message = "已跳至配對括號".into();
+                        }
+                        Ok(None) => self.message = "游標處沒有可配對括號".into(),
+                        Err(error) => self.message = error,
+                    }
+                }
                 ResultEvent::Navigate(hit, Ok(content)) => self.apply_hit(hit, content),
                 ResultEvent::Navigate(_, Err(error)) => self.message = error,
                 ResultEvent::Action(id, before, query, replacement, options, task, outcome) => {
@@ -935,6 +1014,8 @@ impl eframe::App for App {
         let mut goto_requested = false;
         let mut bookmark_action = None;
         let mut line_action = None;
+        let mut indent_action = None;
+        let mut bracket = false;
         let editor_focused = ctx.memory(|memory| {
             memory.has_focus(egui::Id::new(("editor", self.docs[self.active].id)))
         });
@@ -955,6 +1036,38 @@ impl eframe::App for App {
                 goto_requested = true;
             }
             if editor_focused {
+                for event in &i.events {
+                    if let egui::Event::Ime(event) = event {
+                        match event {
+                            egui::ImeEvent::Preedit(_) => self.docs[self.active].composing = true,
+                            egui::ImeEvent::Commit(_) | egui::ImeEvent::Disabled => {
+                                self.docs[self.active].composing = false
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                bracket = i.consume_key(Modifiers::CTRL, Key::B);
+                if !self.docs[self.active].composing
+                    && !i.events.iter().any(|e| matches!(e, egui::Event::Ime(_)))
+                    && i.consume_key(Modifiers::NONE, Key::Enter)
+                {
+                    indent_action = Some(0);
+                }
+                if i.consume_key(Modifiers::SHIFT, Key::Tab) {
+                    indent_action = Some(-1);
+                }
+                let d = &self.docs[self.active];
+                let multiline = d
+                    .content
+                    .text
+                    .chars()
+                    .skip(d.selected.0)
+                    .take(d.selected.1.saturating_sub(d.selected.0))
+                    .any(|c| c == '\n');
+                if multiline && i.consume_key(Modifiers::NONE, Key::Tab) {
+                    indent_action = Some(1);
+                }
                 if i.consume_key(Modifiers::CTRL, Key::F2) {
                     bookmark_action = Some(0);
                 }
@@ -1001,6 +1114,13 @@ impl eframe::App for App {
                     close |= ui.button("關閉分頁    Ctrl+W").clicked();
                 });
                 ui.menu_button("編輯", |ui| {
+                    bracket |= ui.button("跳至配對括號    Ctrl+B").clicked();
+                    if ui.button("增加選取行縮排    Tab").clicked() {
+                        indent_action = Some(1);
+                    }
+                    if ui.button("減少選取行縮排    Shift+Tab").clicked() {
+                        indent_action = Some(-1);
+                    }
                     if ui.button("合併選取行    Ctrl+J").clicked() {
                         line_action = Some(None);
                     }
@@ -1235,6 +1355,12 @@ impl eframe::App for App {
         if let Some(width) = line_action {
             self.line_transform(width);
         }
+        if let Some(action) = indent_action {
+            self.indent_action(action);
+        }
+        if bracket {
+            self.jump_bracket();
+        }
         if new {
             self.new_doc()
         }
@@ -1454,7 +1580,7 @@ impl eframe::App for App {
                 .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
                 .open(&mut self.about_open)
                 .show(ctx, |ui| {
-                    ui.strong("墨頁 InkPage 0.5");
+                    ui.strong("墨頁 InkPage 0.6");
                     ui.label("緊湊的桌面文字編輯器 · Windows / Linux");
                     ui.label("原創程式 MIT；致敬傳統編輯器工作流程。");
                     ui.label("技術與相依授權見 README / THIRD_PARTY_LICENSES.md。");
@@ -1719,6 +1845,28 @@ fn main() -> eframe::Result {
                         app.search = false;
                         app.show_eol = true;
                     }
+                    "indent" => {
+                        app.docs[0].content = Content {
+                            text: "fn 範例() {\n中文🙂\n尾\n}\n".into(),
+                            bom: true,
+                            newline: Newline::Crlf,
+                        };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.docs[0].selected = (10, 16);
+                        app.insert_spaces = true;
+                        app.indent_action(1);
+                        app.show_eol = true;
+                        app.show_spaces = true;
+                        app.search = false;
+                    }
+                    "bracket" => {
+                        app.docs[0].content.text = "fn main() {\n    let 中文 = r###\"} 字串 {\"###;\n    /* } 註解 { */\n    println!(\"中文🙂\");\n}\n".into();
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.docs[0].language = Some(syntax::Language::Rust);
+                        app.docs[0].cursor = 10;
+                        app.search = false;
+                        app.jump_bracket();
+                    }
                     "about" => {
                         app.about_open = true;
                         app.search = false;
@@ -1799,6 +1947,41 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod app_tests {
     use super::*;
+    #[test]
+    fn indent_and_enter_are_undoable_and_bracket_results_are_snapshot_guarded() {
+        let mut a = app();
+        a.docs[0].content.text = "中{\n尾\n}".into();
+        a.docs[0].saved = a.docs[0].content.clone();
+        a.docs[0].language = Some(syntax::Language::Rust);
+        a.docs[0].cursor = 1;
+        a.jump_bracket();
+        wait_idle(&mut a);
+        assert_eq!(a.selection, Some((5, 6)));
+        assert!(!a.docs[0].dirty());
+        a.docs[0].selected = (3, 5);
+        a.insert_spaces = true;
+        a.tab_width = 2;
+        a.indent_action(1);
+        assert_eq!(a.docs[0].content.text, "中{\n  尾\n}");
+        let d = &mut a.docs[0];
+        d.history.undo(&mut d.content);
+        assert_eq!(d.content, d.saved);
+        d.selected = (3, 3);
+        a.indent_action(0);
+        assert_eq!(a.docs[0].content.text, "中{\n\n尾\n}");
+        let before = a.docs[0].content.clone();
+        a.tx.send(ResultEvent::Bracket(
+            999,
+            before.clone(),
+            Some(syntax::Language::Rust),
+            1,
+            Ok(Some(5)),
+        ))
+        .unwrap();
+        a.poll();
+        assert_eq!(a.docs[0].content, before);
+        assert!(a.message.contains("過期"));
+    }
     #[test]
     fn bookmarks_are_tab_local_not_dirty_and_shift_through_edit_undo() {
         let mut a = app();
