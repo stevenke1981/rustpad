@@ -2,6 +2,79 @@
 use eframe::egui;
 use std::{path::Path, sync::OnceLock, time::Instant};
 static START: OnceLock<Instant> = OnceLock::new();
+#[derive(Default)]
+pub struct CaptureSchedule {
+    frames: usize,
+    requested: bool,
+}
+impl CaptureSchedule {
+    pub fn due(&self, target: usize) -> bool {
+        self.frames.saturating_add(1) >= target && !self.requested
+    }
+    pub fn poll(&mut self, target: usize, ready: bool) -> bool {
+        self.frames = self.frames.saturating_add(1);
+        if self.frames >= target && ready && !self.requested {
+            self.requested = true;
+            return true;
+        }
+        false
+    }
+}
+pub fn profile_services(path: &Path) {
+    let mut load = Vec::new();
+    let mut clone = Vec::new();
+    let mut compare = Vec::new();
+    let mut decode = Vec::new();
+    let text = fixture(128 * 1024);
+    let snapshot = crate::session::Snapshot {
+        tabs: (0..8)
+            .map(|_| {
+                let content = crate::core::Content {
+                    text: text.clone(),
+                    bom: true,
+                    newline: crate::core::Newline::Crlf,
+                };
+                crate::session::Tab {
+                    path: None,
+                    saved: content.clone(),
+                    content,
+                    cursor: 0,
+                    selected: (0, 0),
+                }
+            })
+            .collect(),
+        active: 0,
+    };
+    let bytes = crate::session::encode(&snapshot).expect("owned profile fixture");
+    for _ in 0..5 {
+        let timer = Instant::now();
+        std::hint::black_box(crate::syntax::Engine::new());
+        load.push(timer.elapsed().as_secs_f64() * 1000.);
+        let timer = Instant::now();
+        let copied = std::hint::black_box(snapshot.clone());
+        clone.push(timer.elapsed().as_secs_f64() * 1000.);
+        let timer = Instant::now();
+        std::hint::black_box(copied == snapshot);
+        compare.push(timer.elapsed().as_secs_f64() * 1000.);
+        let timer = Instant::now();
+        std::hint::black_box(crate::session::decode(&bytes).unwrap());
+        decode.push(timer.elapsed().as_secs_f64() * 1000.);
+    }
+    let median = |mut values: Vec<f64>| {
+        values.sort_by(f64::total_cmp);
+        values[values.len() / 2]
+    };
+    let report = format!(
+        "{{\"iterations\":5,\"tabs\":8,\"content_bytes_per_tab\":{},\"snapshot_bytes\":{},\"engine_load_median_ms\":{:.4},\"snapshot_clone_median_ms\":{:.4},\"snapshot_compare_median_ms\":{:.4},\"snapshot_decode_median_ms\":{:.4}}}\n",
+        text.len(),
+        bytes.len(),
+        median(load),
+        median(clone),
+        median(compare),
+        median(decode)
+    );
+    std::fs::write(path, report).expect("write profile report");
+}
 pub fn mark_start() {
     let _ = START.set(Instant::now());
 }
@@ -32,5 +105,26 @@ pub fn benchmark(path: &Path, mut highlight: impl FnMut(&str) -> egui::text::Lay
     );
     if let Err(error) = std::fs::write(path, result) {
         eprintln!("benchmark report: {error}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn delayed_restore_startup_capture_retries_and_requests_exactly_once() {
+        for target in [1, 12] {
+            let mut schedule = CaptureSchedule::default();
+            for _ in 0..20 {
+                assert!(!schedule.poll(target, false));
+            }
+            assert!(
+                schedule.poll(target, true),
+                "missed capture after async restore for delay {target}"
+            );
+            for _ in 0..20 {
+                assert!(!schedule.poll(target, true));
+            }
+        }
     }
 }

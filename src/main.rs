@@ -135,7 +135,7 @@ struct App {
     match_range: Option<(u64, (usize, usize))>,
     match_signature: Option<(String, actions::SearchOptions)>,
     capture: Option<PathBuf>,
-    capture_frame: usize,
+    capture_schedule: perf::CaptureSchedule,
     show_spaces: bool,
     show_eol: bool,
     tab_width: usize,
@@ -562,7 +562,7 @@ impl App {
             match_range: None,
             match_signature: None,
             capture: None,
-            capture_frame: 0,
+            capture_schedule: Default::default(),
             show_spaces: false,
             show_eol: false,
             tab_width: 4,
@@ -1107,27 +1107,27 @@ impl eframe::App for App {
             egui::Visuals::light()
         });
         if let Some(path) = self.capture.clone() {
-            self.capture_frame += 1;
             ctx.request_repaint();
-            if self.capture_frame == if self.startup_report.is_some() { 1 } else { 12 } {
+            {
                 let doc = &self.docs[self.active];
                 let language =
                     syntax::resolve(doc.path.as_deref(), &doc.content.text, doc.language);
-                if self.session.as_ref().is_none_or(|s| {
-                    !s.loading
-                        && !s.busy
-                        && (s.blocked || s.persisted.as_ref() == Some(&self.snapshot()))
-                }) && (self.startup_report.is_some()
-                    || (!self.busy
-                        && self.files_cancel.is_none()
-                        && !self
-                            .syntax
-                            .status(doc.id, &doc.content.text, language, self.dark)
-                            .contains("背景")))
-                {
+                let target = if self.startup_report.is_some() { 1 } else { 12 };
+                let ready = self.capture_schedule.due(target)
+                    && self.session.as_ref().is_none_or(|s| {
+                        !s.loading
+                            && !s.busy
+                            && (s.blocked || s.persisted.as_ref() == Some(&self.snapshot()))
+                    })
+                    && (self.startup_report.is_some()
+                        || (!self.busy
+                            && self.files_cancel.is_none()
+                            && !self
+                                .syntax
+                                .status(doc.id, &doc.content.text, language, self.dark)
+                                .contains("背景")));
+                if self.capture_schedule.poll(target, ready) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-                } else {
-                    self.capture_frame = 11;
                 }
             }
             let screenshot = ctx.input(|input| {
@@ -1955,6 +1955,12 @@ fn paint_whitespace(
 fn main() -> eframe::Result {
     perf::mark_start();
     let arguments: Vec<String> = std::env::args().collect();
+    if let Some(index) = arguments.iter().position(|arg| arg == "--profile-services")
+        && let Some(path) = arguments.get(index + 1)
+    {
+        perf::profile_services(PathBuf::from(path).as_path());
+        return Ok(());
+    }
     if let Some(index) = arguments.iter().position(|arg| arg == "--benchmark")
         && let Some(path) = arguments.get(index + 1)
     {
@@ -2737,7 +2743,7 @@ mod app_tests {
             match_range: None,
             match_signature: None,
             capture: None,
-            capture_frame: 0,
+            capture_schedule: Default::default(),
             show_spaces: false,
             show_eol: false,
             tab_width: 4,

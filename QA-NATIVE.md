@@ -6,6 +6,8 @@
 
 最小解鎖動作：在同一 5900X 提供支援的原生 computer-use 工具，並取得本程式的前景驗收時段；或由使用者依以下步驟操作並提供結果。只操作自己的 InkPage 与合成 fixture，不碰其他專案、私人文件、登入或瀏覽器。無需改動安全設定。
 
+0.9 本輪使用者已授權 Computer Use 並確認 RDP 前景；再次呼叫官方 CUA getState，仍回傳 nativeApps=0、browserSurfaces=3、errors=[]。原生 API 明示 disabled，沒有 node_repl/sky。前景授權已足夠，阻礙是工具能力，七項仍未通過；未更改 RDP、登入或安全設定。
+
 請先在自己的 QA 臨時資料夾建立 `original.txt`（UTF-8 BOM、CRLF，內容 `甲🙂乙`、下一行 `尾`），以及可寫的 `saved.txt`、唯讀的 `readonly.txt`；各原檔先記 SHA-256。執行 InkPage 的 `--session <QA資料夾>/native.session`，避免混用日常快照。開始前確認沒有自己的另一個 InkPage 使用同一快照。
 
 | 項目 | 原生操作與應得結果 |

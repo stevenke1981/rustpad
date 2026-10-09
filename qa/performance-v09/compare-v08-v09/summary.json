@@ -1,0 +1,22 @@
+[
+  {
+    "version": "baseline",
+    "n": 12,
+    "exe_bytes": 7594496,
+    "exe_sha256": "59AB06478800AED3E209A2B7768C6B9BA7E8FA71AA8E52470F1BD140726AA291",
+    "median_ms": 370.35485,
+    "min_ms": 357.6607,
+    "max_ms": 390.8159,
+    "sampled_peak_median_bytes": 188192768
+  },
+  {
+    "version": "current",
+    "n": 12,
+    "exe_bytes": 7602176,
+    "exe_sha256": "BA19C9A49D31215736C5602822A89D9C1947C4048ABDA5B4B7D95D237FF3AD52",
+    "median_ms": 378.20079999999996,
+    "min_ms": 347.9619,
+    "max_ms": 400.007,
+    "sampled_peak_median_bytes": 185929728
+  }
+]

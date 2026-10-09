@@ -1,0 +1,146 @@
+[
+  {
+    "round": 0,
+    "version": "baseline",
+    "ms": 369.129,
+    "peak_bytes": 188493824
+  },
+  {
+    "round": 0,
+    "version": "current",
+    "ms": 383.0369,
+    "peak_bytes": 185950208
+  },
+  {
+    "round": 0,
+    "version": "current",
+    "ms": 373.8732,
+    "peak_bytes": 186036224
+  },
+  {
+    "round": 0,
+    "version": "baseline",
+    "ms": 388.6519,
+    "peak_bytes": 188166144
+  },
+  {
+    "round": 1,
+    "version": "baseline",
+    "ms": 359.3103,
+    "peak_bytes": 188231680
+  },
+  {
+    "round": 1,
+    "version": "current",
+    "ms": 388.9623,
+    "peak_bytes": 185950208
+  },
+  {
+    "round": 1,
+    "version": "current",
+    "ms": 378.6165,
+    "peak_bytes": 185954304
+  },
+  {
+    "round": 1,
+    "version": "baseline",
+    "ms": 374.4489,
+    "peak_bytes": 188260352
+  },
+  {
+    "round": 2,
+    "version": "baseline",
+    "ms": 377.3034,
+    "peak_bytes": 188055552
+  },
+  {
+    "round": 2,
+    "version": "current",
+    "ms": 377.7851,
+    "peak_bytes": 185925632
+  },
+  {
+    "round": 2,
+    "version": "current",
+    "ms": 376.3658,
+    "peak_bytes": 185647104
+  },
+  {
+    "round": 2,
+    "version": "baseline",
+    "ms": 371.5807,
+    "peak_bytes": 188268544
+  },
+  {
+    "round": 3,
+    "version": "baseline",
+    "ms": 390.8159,
+    "peak_bytes": 188219392
+  },
+  {
+    "round": 3,
+    "version": "current",
+    "ms": 382.3906,
+    "peak_bytes": 185757696
+  },
+  {
+    "round": 3,
+    "version": "current",
+    "ms": 391.8393,
+    "peak_bytes": 185851904
+  },
+  {
+    "round": 3,
+    "version": "baseline",
+    "ms": 374.4948,
+    "peak_bytes": 188112896
+  },
+  {
+    "round": 4,
+    "version": "baseline",
+    "ms": 359.0097,
+    "peak_bytes": 188162048
+  },
+  {
+    "round": 4,
+    "version": "current",
+    "ms": 374.5347,
+    "peak_bytes": 186060800
+  },
+  {
+    "round": 4,
+    "version": "current",
+    "ms": 347.9619,
+    "peak_bytes": 185901056
+  },
+  {
+    "round": 4,
+    "version": "baseline",
+    "ms": 357.6607,
+    "peak_bytes": 188022784
+  },
+  {
+    "round": 5,
+    "version": "baseline",
+    "ms": 359.0021,
+    "peak_bytes": 188358656
+  },
+  {
+    "round": 5,
+    "version": "current",
+    "ms": 400.007,
+    "peak_bytes": 185749504
+  },
+  {
+    "round": 5,
+    "version": "current",
+    "ms": 362.5827,
+    "peak_bytes": 185933824
+  },
+  {
+    "round": 5,
+    "version": "baseline",
+    "ms": 362.1208,
+    "peak_bytes": 188153856
+  }
+]

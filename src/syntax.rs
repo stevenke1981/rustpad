@@ -373,16 +373,22 @@ pub struct Service {
 }
 impl Service {
     pub fn new(ctx: egui::Context) -> Self {
+        Self::with_loader(ctx, Engine::new)
+    }
+    fn with_loader(ctx: egui::Context, loader: impl FnOnce() -> Engine + Send + 'static) -> Self {
         let (tx, requests) = mpsc::channel::<Request>();
         let (results, rx) = mpsc::channel();
         let ticket = Arc::new(AtomicU64::new(0));
         let worker_ticket = ticket.clone();
         thread::spawn(move || {
-            let engine = Engine::new();
+            let mut loader = Some(loader);
+            let mut engine = None;
             while let Ok(mut request) = requests.recv() {
                 while let Ok(newer) = requests.try_recv() {
                     request = newer;
                 }
+                let engine =
+                    engine.get_or_insert_with(|| loader.take().expect("first grammar request")());
                 let started = Instant::now();
                 let spans = engine.spans(
                     &request.key.text,
@@ -594,6 +600,80 @@ pub fn layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn idle_and_plain_services_do_not_load_grammar_and_first_code_loads_once() {
+        let (loaded, notices) = mpsc::channel();
+        let mut service = Service::with_loader(egui::Context::default(), move || {
+            loaded.send(()).unwrap();
+            Engine::new()
+        });
+        assert!(
+            notices
+                .recv_timeout(std::time::Duration::from_millis(100))
+                .is_err(),
+            "empty editor loaded grammar"
+        );
+        let mut cache = LayoutCache::default();
+        service.layout(
+            1,
+            "中文🙂",
+            Language::Plain,
+            false,
+            4,
+            18.,
+            1.,
+            9.,
+            &mut cache,
+        );
+        service.layout(
+            1,
+            &"x".repeat(HIGHLIGHT_LIMIT + 1),
+            Language::Rust,
+            false,
+            4,
+            18.,
+            1.,
+            9.,
+            &mut cache,
+        );
+        assert!(
+            notices
+                .recv_timeout(std::time::Duration::from_millis(100))
+                .is_err(),
+            "plain fallback loaded grammar"
+        );
+        service.layout(
+            1,
+            "fn main() {}",
+            Language::Rust,
+            false,
+            4,
+            18.,
+            1.,
+            9.,
+            &mut cache,
+        );
+        notices
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        service.layout(
+            1,
+            "fn main() { let x=1; }",
+            Language::Rust,
+            false,
+            4,
+            18.,
+            1.,
+            9.,
+            &mut cache,
+        );
+        assert!(
+            notices
+                .recv_timeout(std::time::Duration::from_millis(100))
+                .is_err(),
+            "grammar loaded twice"
+        );
+    }
     #[test]
     fn detect_extension_shebang_and_manual() {
         assert_eq!(
