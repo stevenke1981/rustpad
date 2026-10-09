@@ -2330,10 +2330,11 @@ dependencies = [
 
 [[package]]
 name = "rustpad"
-version = "0.9.0"
+version = "0.10.1"
 dependencies = [
  "eframe",
  "png",
+ "raw-window-handle",
  "regex",
  "rfd",
  "syntect",
@@ -2341,6 +2342,8 @@ dependencies = [
  "two-face",
  "unicode-segmentation",
  "unicode-width",
+ "windows-sys 0.61.2",
+ "winit",
 ]
 
 [[package]]

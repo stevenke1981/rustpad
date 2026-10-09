@@ -1,4 +1,6 @@
-# 墨頁 InkPage 0.5 規格與架構
+# 墨頁 InkPage 規格與架構
+
+0.10 架構與限制見 [DIFF-0.10.md](DIFF-0.10.md)：dragdrop.rs 提供有上限背景檔案拖入與穩定 ID 分頁排序；i18n.rs／locales/catalog.tsv 提供四語系及獨立有版本設定；branding.rs／build.rs 提供內嵌視窗圖示、Windows ICO 與版本資源。0.10.1 增加 native_drop.rs，在 Windows 主視窗註冊 Shell 檔案接收與 WM_DROPFILES 回呼；raw_input_hook 在 egui 排版前接收一次，詳見 [DIFF-0.10.1.md](DIFF-0.10.1.md)。以下章節保留各版歷史設計。
 
 目前功能矩陣：[ALIGNMENT.md](ALIGNMENT.md)；本輪操作與差異：[DIFF-0.5.md](DIFF-0.5.md)。0.2 歷史規格：[V02.md](V02.md)。
 

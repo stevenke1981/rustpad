@@ -1,11 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod actions;
 mod bookmarks;
+mod branding;
 mod core;
+mod dragdrop;
 mod filesearch;
 mod fold;
+#[cfg(test)]
+mod gui_tests;
+mod i18n;
 mod indent;
 mod lines;
+#[cfg(windows)]
+mod native_drop;
+#[cfg(all(windows, test))]
+mod native_drop_tests;
 mod pattern;
 mod perf;
 mod session;
@@ -61,7 +70,7 @@ impl Document {
     fn dirty(&self) -> bool {
         self.content != self.saved
     }
-    fn title(&self) -> String {
+    fn title(&self, locale: i18n::Locale) -> String {
         format!(
             "{}{}",
             if self.dirty() { "● " } else { "" },
@@ -69,11 +78,12 @@ impl Document {
                 .as_ref()
                 .and_then(|p| p.file_name())
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| format!("未命名 {}", self.id))
+                .unwrap_or_else(|| locale.format("未命名 {0}", &[&self.id.to_string()]))
         )
     }
 }
 enum ResultEvent {
+    Drop(dragdrop::OpenResult),
     Fold(
         u64,
         Content,
@@ -106,6 +116,11 @@ enum FilesEvent {
     Done(Result<filesearch::Report, String>),
 }
 struct App {
+    locale: i18n::Locale,
+    preferences: i18n::Preferences,
+    drop_state: dragdrop::State,
+    #[cfg(windows)]
+    native_drop: Option<native_drop::Bridge>,
     session: Option<session::Service>,
     split_width: usize,
     about_open: bool,
@@ -116,6 +131,7 @@ struct App {
     files_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     files_report: filesearch::Report,
     files_query: String,
+    files_options: actions::SearchOptions,
     qa_navigate: bool,
     docs: Vec<Document>,
     active: usize,
@@ -401,9 +417,10 @@ impl App {
         self.files_cancel = Some(cancel);
         let tx = self.files_tx.clone();
         let ctx = self.repaint.clone();
+        let locale = self.locale;
         std::thread::spawn(move || {
             let root = rfd::FileDialog::new()
-                .set_title("選擇搜尋根資料夾")
+                .set_title(locale.text("選擇搜尋根資料夾"))
                 .pick_folder()
                 .and_then(|p| p.canonicalize().ok());
             let _ = tx.send(FilesEvent::Root(root));
@@ -422,21 +439,8 @@ impl App {
         self.files_cancel = Some(cancel.clone());
         let query = self.query.clone();
         let options = self.search_options;
-        self.files_query = format!(
-            "{} [{}、{}、{}]",
-            query,
-            if options.regex { "regex" } else { "literal" },
-            if options.match_case {
-                "大小寫敏感"
-            } else {
-                "忽略大小寫"
-            },
-            if options.whole_word {
-                "全字"
-            } else {
-                "任意位置"
-            }
-        );
+        self.files_query = query.clone();
+        self.files_options = options;
         self.files_report = Default::default();
         let tx = self.files_tx.clone();
         let ctx = self.repaint.clone();
@@ -499,7 +503,9 @@ impl App {
         self.selection = Some(hit.range);
         self.message = format!("已定位第 {} 行", hit.line);
     }
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(
+        cc: &eframe::CreationContext<'_>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut fonts = egui::FontDefinitions::default();
         for path in [
             "C:/Windows/Fonts/msjh.ttc",
@@ -530,9 +536,15 @@ impl App {
         }
         cc.egui_ctx.set_fonts(fonts);
         cc.egui_ctx.set_visuals(egui::Visuals::light());
+        let (preferences, locale, error) = i18n::from_args(&std::env::args().collect::<Vec<_>>());
         let (tx, rx) = mpsc::channel();
         let (files_tx, files_rx) = mpsc::channel();
-        Self {
+        Ok(Self {
+            locale,
+            preferences,
+            drop_state: Default::default(),
+            #[cfg(windows)]
+            native_drop: Some(native_drop::Bridge::new(cc)?),
             session: None,
             split_width: 80,
             about_open: false,
@@ -543,6 +555,7 @@ impl App {
             files_cancel: None,
             files_report: Default::default(),
             files_query: String::new(),
+            files_options: Default::default(),
             qa_navigate: false,
             docs: vec![Document::new(1, None, Content::default())],
             active: 0,
@@ -550,7 +563,10 @@ impl App {
             tx,
             rx,
             busy: false,
-            message: "就緒 · UTF-8 編輯器 · 2 MiB 上限".into(),
+            message: error.map_or_else(
+                || "就緒 · UTF-8 編輯器 · 2 MiB 上限".into(),
+                |e| format!("語系設定未保存：{e}"),
+            ),
             dark: false,
             search: false,
             query: String::new(),
@@ -574,7 +590,7 @@ impl App {
             goto_open: false,
             goto_input: "1".into(),
             repaint: cc.egui_ctx.clone(),
-        }
+        })
     }
     fn new_doc(&mut self) {
         self.docs
@@ -589,8 +605,10 @@ impl App {
         self.busy = true;
         let tx = self.tx.clone();
         let ctx = ctx.clone();
+        let locale = self.locale;
         std::thread::spawn(move || {
             let result = rfd::FileDialog::new()
+                .set_title(locale.text("開啟"))
                 .pick_file()
                 .map(|p| {
                     core::read_file(&p)
@@ -613,11 +631,13 @@ impl App {
         let original_path = path.clone();
         let tx = self.tx.clone();
         let ctx = ctx.clone();
+        let locale = self.locale;
         self.busy = true;
         std::thread::spawn(move || {
             let result = (|| {
                 let p = path.or_else(|| {
                     rfd::FileDialog::new()
+                        .set_title(locale.text("另存新檔"))
                         .set_file_name("untitled.txt")
                         .save_file()
                 });
@@ -651,11 +671,19 @@ impl App {
         }
     }
     fn remove(&mut self, id: u64) {
+        let active_id = self.docs[self.active].id;
         self.docs.retain(|d| d.id != id);
         if self.docs.is_empty() {
             self.new_doc()
         }
-        self.active = self.active.min(self.docs.len() - 1);
+        self.active = self
+            .docs
+            .iter()
+            .position(|doc| doc.id == active_id)
+            .unwrap_or_else(|| self.active.min(self.docs.len() - 1));
+        self.selection = None;
+        self.match_range = None;
+        self.match_signature = None;
         self.pending_close = None;
     }
     fn activate(&mut self, index: usize) {
@@ -961,6 +989,7 @@ impl App {
         while let Ok(event) = self.rx.try_recv() {
             self.busy = false;
             match event {
+                ResultEvent::Drop(result) => self.poll_drop(result),
                 ResultEvent::Fold(id, before, language, cursor, result) => {
                     let d = &mut self.docs[self.active];
                     if d.id != id
@@ -1069,11 +1098,11 @@ impl App {
                         .iter()
                         .position(|d| d.path.as_ref() == Some(&path))
                     {
-                        self.active = index
+                        self.activate(index)
                     } else {
                         self.docs.push(Document::new(self.next_id, Some(path), c));
                         self.next_id += 1;
-                        self.active = self.docs.len() - 1;
+                        self.activate(self.docs.len() - 1);
                     }
                     self.message = "已開啟".into();
                 }
@@ -1099,7 +1128,21 @@ impl App {
     }
 }
 impl eframe::App for App {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+        #[cfg(windows)]
+        if let Some(bridge) = &self.native_drop {
+            let files = bridge.take_files();
+            self.receive_drops(files);
+        }
+        // eframe calls this once before egui's layout passes. Keep file opens
+        // out of repeated UI passes, and retain them while another operation runs.
+        self.receive_drops(std::mem::take(&mut input.dropped_files));
+    }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let locale = self.locale;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+            locale.text("墨頁 InkPage — 文字編輯器").into(),
+        ));
         self.poll_session(ctx);
         ctx.set_visuals(if self.dark {
             egui::Visuals::dark()
@@ -1166,6 +1209,7 @@ impl eframe::App for App {
             }
         }
         self.poll();
+        self.process_drops(ctx);
         for d in &mut self.docs {
             d.bookmarks.sync(&d.content.text);
             d.folds.sync(&d.content.text);
@@ -1177,7 +1221,7 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         if ctx.input(|i| i.viewport().close_requested()) && !self.force_exit {
-            if self.busy || self.docs.iter().any(Document::dirty) {
+            if self.busy || self.drops_pending() || self.docs.iter().any(Document::dirty) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.exit = true;
             } else if let Some(service) = &mut self.session
@@ -1299,164 +1343,225 @@ impl eframe::App for App {
         });
         egui::TopBottomPanel::top("chrome").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("檔案", |ui| {
-                    new |= ui.button("新建    Ctrl+N").clicked();
-                    open |= ui.button("開啟…    Ctrl+O").clicked();
-                    save |= ui.button("儲存    Ctrl+S").clicked();
-                    save_as |= ui.button("另存新檔…    Ctrl+Shift+S").clicked();
-                    close |= ui.button("關閉分頁    Ctrl+W").clicked();
+                ui.menu_button(locale.text("檔案"), |ui| {
+                    new |= ui.button(locale.text("新建    Ctrl+N")).clicked();
+                    open |= ui.button(locale.text("開啟…    Ctrl+O")).clicked();
+                    save |= ui.button(locale.text("儲存    Ctrl+S")).clicked();
+                    save_as |= ui
+                        .button(locale.text("另存新檔…    Ctrl+Shift+S"))
+                        .clicked();
+                    close |= ui.button(locale.text("關閉分頁    Ctrl+W")).clicked();
                 });
-                ui.menu_button("編輯", |ui| {
-                    folding |= ui.button("摺疊／展開目前區塊    Ctrl+Alt+F").clicked();
-                    unfolding |= ui.button("展開全部    Ctrl+Alt+U").clicked();
-                    bracket |= ui.button("跳至配對括號    Ctrl+B").clicked();
-                    if ui.button("增加選取行縮排    Tab").clicked() {
+                ui.menu_button(locale.text("編輯"), |ui| {
+                    folding |= ui
+                        .button(locale.text("摺疊／展開目前區塊    Ctrl+Alt+F"))
+                        .clicked();
+                    unfolding |= ui.button(locale.text("展開全部    Ctrl+Alt+U")).clicked();
+                    bracket |= ui.button(locale.text("跳至配對括號    Ctrl+B")).clicked();
+                    if ui.button(locale.text("增加選取行縮排    Tab")).clicked() {
                         indent_action = Some(1);
                     }
-                    if ui.button("減少選取行縮排    Shift+Tab").clicked() {
+                    if ui
+                        .button(locale.text("減少選取行縮排    Shift+Tab"))
+                        .clicked()
+                    {
                         indent_action = Some(-1);
                     }
-                    if ui.button("合併選取行    Ctrl+J").clicked() {
+                    if ui.button(locale.text("合併選取行    Ctrl+J")).clicked() {
                         line_action = Some(None);
                     }
-                    if ui.button("分割選取行／目前行    Ctrl+Shift+J").clicked() {
+                    if ui
+                        .button(locale.text("分割選取行／目前行    Ctrl+Shift+J"))
+                        .clicked()
+                    {
                         line_action = Some(Some(self.split_width));
                     }
                     ui.horizontal(|ui| {
-                        ui.label("分割寬度（字素）");
+                        ui.label(locale.text("分割寬度（字素）"));
                         ui.add(egui::DragValue::new(&mut self.split_width).range(1..=1000));
                     });
                     ui.separator();
-                    if ui.button("複製目前行    Ctrl+D").clicked() {
+                    if ui.button(locale.text("複製目前行    Ctrl+D")).clicked() {
                         edit_action = Some(actions::Edit::DuplicateLine);
                     }
-                    if ui.button("刪除目前行    Ctrl+Shift+K").clicked() {
+                    if ui
+                        .button(locale.text("刪除目前行    Ctrl+Shift+K"))
+                        .clicked()
+                    {
                         edit_action = Some(actions::Edit::DeleteLine);
                     }
                     ui.separator();
-                    if ui.button("選取文字轉大寫    Ctrl+Shift+U").clicked() {
+                    if ui
+                        .button(locale.text("選取文字轉大寫    Ctrl+Shift+U"))
+                        .clicked()
+                    {
                         edit_action = Some(actions::Edit::Uppercase);
                     }
-                    if ui.button("選取文字轉小寫    Ctrl+U").clicked() {
+                    if ui.button(locale.text("選取文字轉小寫    Ctrl+U")).clicked() {
                         edit_action = Some(actions::Edit::Lowercase);
                     }
                     ui.separator();
-                    undo |= ui.button("復原    Ctrl+Z").clicked();
-                    redo |= ui.button("重做    Ctrl+Y").clicked();
+                    undo |= ui.button(locale.text("復原    Ctrl+Z")).clicked();
+                    redo |= ui.button(locale.text("重做    Ctrl+Y")).clicked();
                 });
-                ui.menu_button("搜尋", |ui| {
-                    if ui.button("切換行書籤    Ctrl+F2").clicked() {
+                ui.menu_button(locale.text("搜尋"), |ui| {
+                    if ui.button(locale.text("切換行書籤    Ctrl+F2")).clicked() {
                         bookmark_action = Some(0);
                     }
-                    if ui.button("下一個書籤    F2").clicked() {
+                    if ui.button(locale.text("下一個書籤    F2")).clicked() {
                         bookmark_action = Some(1);
                     }
-                    if ui.button("上一個書籤    Shift+F2").clicked() {
+                    if ui.button(locale.text("上一個書籤    Shift+F2")).clicked() {
                         bookmark_action = Some(-1);
                     }
-                    if ui.button("清除目前分頁書籤").clicked() {
+                    if ui.button(locale.text("清除目前分頁書籤")).clicked() {
                         bookmark_action = Some(2);
                     }
                     ui.separator();
-                    if ui.button("多檔搜尋（唯讀）…").clicked() {
+                    if ui.button(locale.text("多檔搜尋（唯讀）…")).clicked() {
                         self.files_open = true;
                         self.search = true;
                     }
-                    previous |= ui.button("尋找上一個    Shift+F3").clicked();
-                    if ui.button("跳至行…    Ctrl+G").clicked() {
+                    previous |= ui.button(locale.text("尋找上一個    Shift+F3")).clicked();
+                    if ui.button(locale.text("跳至行…    Ctrl+G")).clicked() {
                         self.goto_open = true;
                         goto_requested = true;
                     }
-                    if ui.button("搜尋／取代    Ctrl+F / Ctrl+H").clicked() {
+                    if ui
+                        .button(locale.text("搜尋／取代    Ctrl+F / Ctrl+H"))
+                        .clicked()
+                    {
                         self.search = true;
                     }
-                    find |= ui.button("尋找下一個    F3").clicked();
+                    find |= ui.button(locale.text("尋找下一個    F3")).clicked();
                 });
-                ui.menu_button("檢視", |ui| {
-                    if ui.checkbox(&mut self.dark, "深色主題").changed() {
+                ui.menu_button(locale.text("檢視"), |ui| {
+                    if ui
+                        .checkbox(&mut self.dark, locale.text("深色主題"))
+                        .changed()
+                    {
                         ctx.set_visuals(if self.dark {
                             egui::Visuals::dark()
                         } else {
                             egui::Visuals::light()
                         });
                     }
-                    ui.checkbox(&mut self.show_spaces, "顯示空格與 Tab（僅視覺標記）");
-                    ui.checkbox(&mut self.show_eol, "顯示真實行尾與 EOF 標記");
-                    ui.label("不自動折行；行尾標記代表檔案換行");
+                    ui.checkbox(
+                        &mut self.show_spaces,
+                        locale.text("顯示空格與 Tab（僅視覺標記）"),
+                    );
+                    ui.checkbox(&mut self.show_eol, locale.text("顯示真實行尾與 EOF 標記"));
+                    ui.label(locale.text("不自動折行；行尾標記代表檔案換行"));
                 });
-                ui.menu_button("格式", |ui| {
+                ui.menu_button(locale.text("格式"), |ui| {
                     let d = &mut self.docs[self.active];
                     let before = d.content.clone();
                     ui.checkbox(&mut d.content.bom, "UTF-8 BOM");
                     ui.selectable_value(&mut d.content.newline, Newline::Lf, "LF（Linux）");
                     ui.selectable_value(&mut d.content.newline, Newline::Crlf, "CRLF（Windows）");
-                    ui.selectable_value(&mut d.content.newline, Newline::Cr, "CR（舊式格式）");
+                    ui.selectable_value(
+                        &mut d.content.newline,
+                        Newline::Cr,
+                        locale.text("CR（舊式格式）"),
+                    );
                     if before != d.content {
                         d.history.record(before);
                     }
                 });
-                ui.menu_button("空白", |ui| {
-                    ui.label("Tab stops（每 N 欄對齊；Unicode 邏輯字寬）");
-                    ui.add(egui::Slider::new(&mut self.tab_width, 1..=8).text("Tab 寬度"));
-                    ui.checkbox(&mut self.insert_spaces, "按 Tab 插入空格至下一個 Tab stop");
+                ui.menu_button(locale.text("空白"), |ui| {
+                    ui.label(locale.text("Tab stops（每 N 欄對齊；Unicode 邏輯字寬）"));
+                    ui.add(
+                        egui::Slider::new(&mut self.tab_width, 1..=8).text(locale.text("Tab 寬度")),
+                    );
+                    ui.checkbox(
+                        &mut self.insert_spaces,
+                        locale.text("按 Tab 插入空格至下一個 Tab stop"),
+                    );
                     ui.separator();
                     let selected =
                         self.docs[self.active].selected.0 != self.docs[self.active].selected.1;
                     if ui
-                        .add_enabled(selected, egui::Button::new("選取的 Tab → 空格"))
+                        .add_enabled(
+                            selected,
+                            egui::Button::new(locale.text("選取的 Tab → 空格")),
+                        )
                         .clicked()
                     {
                         self.whitespace_edit(WhitespaceEdit::TabsToSpaces(self.tab_width), true);
                     }
                     if ui
-                        .add_enabled(selected, egui::Button::new("選取的空格 → Tab"))
+                        .add_enabled(selected, egui::Button::new(locale.text("選取的空格 → Tab")))
                         .clicked()
                     {
                         self.whitespace_edit(WhitespaceEdit::SpacesToTabs(self.tab_width), true);
                     }
-                    if ui.button("全文件 Tab → 空格").clicked() {
+                    if ui.button(locale.text("全文件 Tab → 空格")).clicked() {
                         self.whitespace_edit(WhitespaceEdit::TabsToSpaces(self.tab_width), false);
                     }
-                    if ui.button("全文件空格 → Tab").clicked() {
+                    if ui.button(locale.text("全文件空格 → Tab")).clicked() {
                         self.whitespace_edit(WhitespaceEdit::SpacesToTabs(self.tab_width), false);
                     }
                     ui.separator();
-                    if ui.button("清除行尾空格與 Tab").clicked() {
+                    if ui.button(locale.text("清除行尾空格與 Tab")).clicked() {
                         self.whitespace_edit(WhitespaceEdit::TrimTrailing, false);
                     }
-                    if ui.button("確保檔尾一個換行（不刪空白行）").clicked() {
+                    if ui
+                        .button(locale.text("確保檔尾一個換行（不刪空白行）"))
+                        .clicked()
+                    {
                         self.whitespace_edit(WhitespaceEdit::AddFinalNewline, false);
                     }
-                    if ui.button("移除最後一個換行").clicked() {
+                    if ui.button(locale.text("移除最後一個換行")).clicked() {
                         self.whitespace_edit(WhitespaceEdit::RemoveFinalNewline, false);
                     }
-                    ui.label("上述內容轉換可 Ctrl+Z 復原；預設不自動清理");
+                    ui.label(locale.text("上述內容轉換可 Ctrl+Z 復原；預設不自動清理"));
                 });
-                ui.menu_button("語言", |ui| {
-                    let doc = &mut self.docs[self.active];
-                    ui.selectable_value(&mut doc.language, None, "自動（副檔名／shebang）");
-                    ui.separator();
-                    for language in syntax::Language::ALL {
-                        ui.selectable_value(&mut doc.language, Some(language), language.label());
+                let previous_locale = self.locale;
+                ui.menu_button(locale.text("介面語言"), |ui| {
+                    for choice in i18n::Locale::ALL {
+                        ui.selectable_value(&mut self.locale, choice, choice.name());
                     }
                 });
-                if ui.button("墨頁 InkPage").clicked() {
+                if self.locale != previous_locale {
+                    self.message = match self.preferences.save(self.locale) {
+                        Ok(()) => "介面語言已切換".into(),
+                        Err(error) => format!("語系設定未保存：{error}"),
+                    };
+                    ctx.request_repaint();
+                }
+                ui.menu_button(locale.text("語法語言"), |ui| {
+                    let doc = &mut self.docs[self.active];
+                    ui.selectable_value(
+                        &mut doc.language,
+                        None,
+                        locale.text("自動（副檔名／shebang）"),
+                    );
+                    ui.separator();
+                    for language in syntax::Language::ALL {
+                        ui.selectable_value(
+                            &mut doc.language,
+                            Some(language),
+                            locale.text(language.label()),
+                        );
+                    }
+                });
+                if ui.button(locale.text("墨頁 InkPage")).clicked() {
                     self.about_open = true;
                 }
             });
             ui.horizontal(|ui| {
-                new |= ui.small_button("＋ 新建").clicked();
-                open |= ui.small_button("開啟").clicked();
-                save |= ui.small_button("儲存").clicked();
+                new |= ui.small_button(locale.text("＋ 新建")).clicked();
+                open |= ui.small_button(locale.text("開啟")).clicked();
+                save |= ui.small_button(locale.text("儲存")).clicked();
                 ui.separator();
-                undo |= ui.small_button("復原").clicked();
-                redo |= ui.small_button("重做").clicked();
-                if ui.small_button("搜尋／取代").clicked() {
+                undo |= ui.small_button(locale.text("復原")).clicked();
+                redo |= ui.small_button(locale.text("重做")).clicked();
+                if ui.small_button(locale.text("搜尋／取代")).clicked() {
                     self.search = !self.search;
                 }
                 if self.busy {
                     ui.spinner();
-                    ui.label("處理檔案中…");
+                    ui.label(locale.text("處理檔案中…"));
                 }
             });
             egui::ScrollArea::horizontal()
@@ -1465,57 +1570,130 @@ impl eframe::App for App {
                     ui.horizontal(|ui| {
                         let mut closing = None;
                         let mut activating = None;
+                        let mut moving = None;
                         for (index, d) in self.docs.iter().enumerate() {
-                            if ui
-                                .selectable_label(index == self.active, d.title())
-                                .clicked()
-                            {
-                                activating = Some(index);
-                            }
-                            if ui.small_button("×").clicked() {
-                                closing = Some(d.id);
-                            }
+                            ui.push_id(("tab", d.id), |ui| {
+                                let response = ui
+                                    .add(
+                                        egui::Button::new(d.title(locale))
+                                            .selected(index == self.active)
+                                            .sense(egui::Sense::click_and_drag()),
+                                    )
+                                    .on_hover_text(locale.text("拖曳以排序分頁"));
+                                response.dnd_set_drag_payload(dragdrop::TabPayload(d.id));
+                                if response.clicked() {
+                                    activating = Some(index);
+                                }
+                                let after = ui
+                                    .input(|input| input.pointer.hover_pos())
+                                    .is_some_and(|pos| pos.x >= response.rect.center().x);
+                                if response
+                                    .dnd_hover_payload::<dragdrop::TabPayload>()
+                                    .is_some()
+                                {
+                                    let x = if after {
+                                        response.rect.right()
+                                    } else {
+                                        response.rect.left()
+                                    };
+                                    ui.painter().line_segment(
+                                        [
+                                            egui::pos2(x, response.rect.top()),
+                                            egui::pos2(x, response.rect.bottom()),
+                                        ],
+                                        egui::Stroke::new(
+                                            2_f32,
+                                            ui.visuals().selection.stroke.color,
+                                        ),
+                                    );
+                                    ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                                }
+                                if let Some(payload) =
+                                    response.dnd_release_payload::<dragdrop::TabPayload>()
+                                {
+                                    moving = Some((payload.0, d.id, after));
+                                }
+                                if ui
+                                    .small_button("×")
+                                    .on_hover_text(locale.text("關閉分頁"))
+                                    .clicked()
+                                {
+                                    closing = Some(d.id);
+                                }
+                            });
                             ui.separator();
+                        }
+                        let tail = ui.allocate_response(
+                            egui::vec2(32., ui.spacing().interact_size.y),
+                            egui::Sense::hover(),
+                        );
+                        if let Some(payload) = tail.dnd_release_payload::<dragdrop::TabPayload>() {
+                            moving = Some((payload.0, self.docs.last().unwrap().id, true));
                         }
                         if let Some(index) = activating {
                             self.activate(index);
+                        }
+                        if let Some((source, target, after)) = moving {
+                            self.move_tab(source, target, after);
                         }
                         if let Some(id) = closing {
                             self.request_close(id)
                         }
                     });
+                    if egui::DragAndDrop::has_payload_of_type::<dragdrop::TabPayload>(ctx)
+                        && let Some(pointer) = ui.input(|input| input.pointer.hover_pos())
+                        && ui.clip_rect().y_range().contains(pointer.y)
+                    {
+                        let delta = if pointer.x < ui.clip_rect().left() + 24. {
+                            8.
+                        } else if pointer.x > ui.clip_rect().right() - 24. {
+                            -8.
+                        } else {
+                            0.
+                        };
+                        if delta != 0. {
+                            ui.scroll_with_delta(egui::vec2(delta, 0.));
+                            ctx.request_repaint_after(Duration::from_millis(16));
+                        }
+                    }
                 });
             if self.search {
                 let before = (self.query.clone(), self.search_options);
-                ui.horizontal(|ui| {
-                    ui.label("尋找");
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(locale.text("尋找"));
                     ui.add(egui::TextEdit::singleline(&mut self.query).desired_width(170.));
-                    previous |= ui.button("上一個").clicked();
-                    find |= ui.button("下一個").clicked();
-                    if ui.button("計數").clicked() {
+                    previous |= ui.button(locale.text("上一個")).clicked();
+                    find |= ui.button(locale.text("下一個")).clicked();
+                    if ui.button(locale.text("計數")).clicked() {
                         self.count_matches();
                     }
-                    ui.label("取代");
+                    ui.label(locale.text("取代"));
                     ui.add(egui::TextEdit::singleline(&mut self.replacement).desired_width(170.));
                     if before.0 != self.query {
                         self.match_range = None;
                     }
-                    if ui.button("取代此項").clicked() {
+                    if ui.button(locale.text("取代此項")).clicked() {
                         self.replace_one();
                     }
-                    if ui.button("全部取代").clicked() {
+                    if ui.button(locale.text("全部取代")).clicked() {
                         self.replace_all();
                     }
                     if ui.small_button("×").clicked() {
                         self.search = false;
                     }
                 });
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.search_options.match_case, "符合大小寫");
-                    ui.checkbox(&mut self.search_options.whole_word, "全字");
-                    ui.checkbox(&mut self.search_options.wrap, "循環搜尋");
-                    ui.checkbox(&mut self.in_selection, "計數／全部取代限選取範圍");
-                    ui.checkbox(&mut self.search_options.regex, "正規表示式");
+                ui.horizontal_wrapped(|ui| {
+                    ui.checkbox(
+                        &mut self.search_options.match_case,
+                        locale.text("符合大小寫"),
+                    );
+                    ui.checkbox(&mut self.search_options.whole_word, locale.text("全字"));
+                    ui.checkbox(&mut self.search_options.wrap, locale.text("循環搜尋"));
+                    ui.checkbox(
+                        &mut self.in_selection,
+                        locale.text("計數／全部取代限選取範圍"),
+                    );
+                    ui.checkbox(&mut self.search_options.regex, locale.text("正規表示式"));
                 });
                 if before != (self.query.clone(), self.search_options) {
                     self.match_range = None;
@@ -1526,15 +1704,22 @@ impl eframe::App for App {
             let mut selected_hit = None;
             egui::TopBottomPanel::bottom("file-results").resizable(true).default_height(180.).show(ctx,|ui| {
                 ui.horizontal(|ui| {
-                    ui.strong("多檔搜尋");
-                    if ui.add_enabled(self.files_cancel.is_none(),egui::Button::new("選擇根資料夾…")).clicked() {self.choose_root();}
-                    if ui.add_enabled(self.files_cancel.is_none(),egui::Button::new("開始搜尋")).clicked() {self.search_files();}
-                    if let Some(cancel)=&self.files_cancel && ui.button("取消工作").clicked() {cancel.store(true,std::sync::atomic::Ordering::Relaxed);}
-                    if ui.button("收起").clicked() {self.files_open=false;}
-                    ui.label(self.files_root.as_ref().map_or("尚未選擇根資料夾".into(),|p|p.file_name().unwrap_or_default().to_string_lossy().into_owned())).on_hover_text(self.files_root.as_ref().map_or(String::new(),|p|p.display().to_string()));
+                    ui.strong(locale.text("多檔搜尋"));
+                    if ui.add_enabled(self.files_cancel.is_none(),egui::Button::new(locale.text("選擇根資料夾…"))).clicked() {self.choose_root();}
+                    if ui.add_enabled(self.files_cancel.is_none(),egui::Button::new(locale.text("開始搜尋"))).clicked() {self.search_files();}
+                    if let Some(cancel)=&self.files_cancel && ui.button(locale.text("取消工作")).clicked() {cancel.store(true,std::sync::atomic::Ordering::Relaxed);}
+                    if ui.button(locale.text("收起")).clicked() {self.files_open=false;}
+                    ui.label(self.files_root.as_ref().map_or(locale.text("尚未選擇根資料夾").into(),|p|p.file_name().unwrap_or_default().to_string_lossy().into_owned())).on_hover_text(self.files_root.as_ref().map_or(String::new(),|p|p.display().to_string()));
                 });
-                ui.weak("僅讀磁碟；1000 檔／32 MiB／2000 命中／10000 項目／深度 32；跳過連結、.git、target 與無法安全開啟的檔案");
-                ui.label(format!("結果條件：{}；{} 處{}{}",self.files_query,self.files_report.hits.len(),if self.files_report.cancelled {"（已取消；部分結果）"}else{""},if self.files_report.limited {"（已達限制；部分結果）"}else{""}));
+                ui.weak(locale.text("僅讀磁碟；1000 檔／32 MiB／2000 命中／10000 項目／深度 32；跳過連結、.git、target 與無法安全開啟的檔案"));
+                let conditions = format!("{} [{}, {}, {}]", self.files_query,
+                    if self.files_options.regex { "regex" } else { "literal" },
+                    locale.text(if self.files_options.match_case { "大小寫敏感" } else { "忽略大小寫" }),
+                    locale.text(if self.files_options.whole_word { "全字" } else { "任意位置" }));
+                ui.label(locale.format("結果條件：{0}；{1} 處{2}{3}", &[
+                    &conditions, &self.files_report.hits.len().to_string(),
+                    locale.text(if self.files_report.cancelled { "（已取消；部分結果）" } else { "" }),
+                    locale.text(if self.files_report.limited { "（已達限制；部分結果）" } else { "" })]));
                 egui::ScrollArea::both().show(ui,|ui| {for hit in &self.files_report.hits {if ui.selectable_label(false,format!("{}:{}  {}",self.files_root.as_ref().and_then(|root|hit.path.strip_prefix(root).ok()).unwrap_or(&hit.path).display(),hit.line,hit.preview)).on_hover_text(hit.path.display().to_string()).clicked() {selected_hit=Some(hit.clone());}}});
             });
             if let Some(hit) = selected_hit {
@@ -1597,13 +1782,16 @@ impl eframe::App for App {
             self.find_next();
         }
         if self.goto_open {
-            egui::Window::new("跳至行")
+            egui::Window::new(locale.text("跳至行"))
+                .id(egui::Id::new("goto-window"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
                 .show(ctx, |ui| {
                     let max = self.docs[self.active].content.text.matches('\n').count() + 1;
-                    ui.label(format!("行號 1–{max}（Unicode 游標，保留內容）"));
+                    ui.label(
+                        locale.format("行號 1–{0}（Unicode 游標，保留內容）", &[&max.to_string()]),
+                    );
                     let field = ui.add(
                         egui::TextEdit::singleline(&mut self.goto_input)
                             .id(egui::Id::new("goto-line"))
@@ -1613,10 +1801,10 @@ impl eframe::App for App {
                         self.go_to_line();
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("跳至").clicked() {
+                        if ui.button(locale.text("跳至")).clicked() {
                             self.go_to_line();
                         }
-                        if ui.button("取消").clicked() {
+                        if ui.button(locale.text("取消")).clicked() {
                             self.goto_open = false;
                         }
                     });
@@ -1628,26 +1816,37 @@ impl eframe::App for App {
             let prefix: String = d.content.text.chars().take(d.cursor).collect();
             let line = prefix.matches('\n').count() + 1;
             let col = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
-            ui.horizontal(|ui| {
-                ui.label(&self.message);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(format!(
-                        "{}{} | {} | {} | Tab:{}{} | 末尾:{} | 行 {line}:列 {col} | {} 字",
-                        language.label(),
-                        self.syntax
-                            .status(d.id, &d.content.text, language, self.dark),
-                        if d.content.bom { "UTF-8 BOM" } else { "UTF-8" },
-                        d.content.newline.label(),
-                        self.tab_width,
-                        if self.insert_spaces { "空格" } else { "Tab" },
-                        if d.content.text.ends_with('\n') {
-                            "有"
-                        } else {
-                            "無"
-                        },
-                        d.content.text.chars().count()
-                    ));
-                });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(locale.message(&self.message))
+                    .on_hover_text(locale.text("可拖入多個檔案；拖曳分頁可調整順序"));
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    locale.format(
+                        "{0}{1} | {2} | {3} | Tab:{4}{5} | 末尾:{6} | 行 {7}:列 {8} | {9} 字",
+                        &[
+                            locale.text(language.label()),
+                            locale.text(self.syntax.status(
+                                d.id,
+                                &d.content.text,
+                                language,
+                                self.dark,
+                            )),
+                            if d.content.bom { "UTF-8 BOM" } else { "UTF-8" },
+                            d.content.newline.label(),
+                            &self.tab_width.to_string(),
+                            locale.text(if self.insert_spaces { "空格" } else { "Tab" }),
+                            locale.text(if d.content.text.ends_with('\n') {
+                                "有"
+                            } else {
+                                "無"
+                            }),
+                            &line.to_string(),
+                            &col.to_string(),
+                            &d.content.text.chars().count().to_string(),
+                        ],
+                    ),
+                );
             });
         });
         egui::CentralPanel::default()
@@ -1785,20 +1984,26 @@ impl eframe::App for App {
                 d.bookmarks.sync(&d.content.text);
             });
         if self.about_open {
-            egui::Window::new("關於墨頁 InkPage")
+            egui::Window::new(locale.text("關於墨頁 InkPage"))
+                .id(egui::Id::new("about-window"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
                 .open(&mut self.about_open)
                 .show(ctx, |ui| {
-                    ui.strong(format!("墨頁 InkPage {}", env!("CARGO_PKG_VERSION")));
-                    ui.label("緊湊的桌面文字編輯器 · Windows / Linux");
-                    ui.label("原創程式 MIT；致敬傳統編輯器工作流程。");
-                    ui.label("技術與相依授權見 README / THIRD_PARTY_LICENSES.md。");
+                    ui.strong(format!(
+                        "{} {}",
+                        locale.text("墨頁 InkPage"),
+                        env!("CARGO_PKG_VERSION")
+                    ));
+                    ui.label(locale.text("緊湊的桌面文字編輯器 · Windows / Linux"));
+                    ui.label(locale.text("原創程式 MIT；致敬傳統編輯器工作流程。"));
+                    ui.label(locale.text("技術與相依授權見 README / THIRD_PARTY_LICENSES.md。"));
                 });
         }
         if let Some(id) = self.pending_close {
-            egui::Window::new("尚有未儲存變更")
+            egui::Window::new(locale.text("尚有未儲存變更"))
+                .id(egui::Id::new("close-window"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
@@ -1807,12 +2012,12 @@ impl eframe::App for App {
                         self.docs
                             .iter()
                             .find(|d| d.id == id)
-                            .map(Document::title)
+                            .map(|doc| doc.title(locale))
                             .unwrap_or_default(),
                     );
                     ui.horizontal(|ui| {
                         if ui
-                            .add_enabled(!self.busy, egui::Button::new("儲存後關閉"))
+                            .add_enabled(!self.busy, egui::Button::new(locale.text("儲存後關閉")))
                             .clicked()
                             && let Some(i) = self.docs.iter().position(|d| d.id == id)
                         {
@@ -1820,30 +2025,34 @@ impl eframe::App for App {
                             self.save(ctx, false, true);
                         }
                         if ui
-                            .add_enabled(!self.busy, egui::Button::new("放棄變更"))
+                            .add_enabled(!self.busy, egui::Button::new(locale.text("放棄變更")))
                             .clicked()
                         {
                             self.remove(id);
                         }
-                        if ui.button("取消").clicked() {
+                        if ui.button(locale.text("取消")).clicked() {
                             self.pending_close = None;
                         }
                     });
                 });
         }
         if self.exit {
-            egui::Window::new("結束墨頁 InkPage")
+            egui::Window::new(locale.text("結束墨頁 InkPage"))
+                .id(egui::Id::new("exit-window"))
                 .collapsible(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
                 .show(ctx, |ui| {
-                    ui.label("仍有未儲存變更或檔案操作。請先儲存需要的分頁。");
+                    ui.label(locale.text("仍有未儲存變更或檔案操作。請先儲存需要的分頁。"));
                     ui.horizontal(|ui| {
                         if self
                             .session
                             .as_ref()
                             .is_some_and(|s| !s.blocked && !s.loading)
                             && ui
-                                .add_enabled(!self.busy, egui::Button::new("保留工作階段並結束"))
+                                .add_enabled(
+                                    !self.busy,
+                                    egui::Button::new(locale.text("保留工作階段並結束")),
+                                )
                                 .clicked()
                         {
                             if let Some(service) = &mut self.session {
@@ -1852,7 +2061,10 @@ impl eframe::App for App {
                             self.exit = false;
                         }
                         if ui
-                            .add_enabled(!self.busy, egui::Button::new("放棄全部並結束"))
+                            .add_enabled(
+                                !self.busy,
+                                egui::Button::new(locale.text("放棄全部並結束")),
+                            )
                             .clicked()
                         {
                             if let Some(service) = &mut self.session
@@ -1871,11 +2083,45 @@ impl eframe::App for App {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         }
-                        if ui.button("返回編輯").clicked() {
+                        if ui.button(locale.text("返回編輯")).clicked() {
                             self.exit = false;
                         }
                     });
                 });
+        }
+        if self.drop_state.errors_open {
+            let mut visible = true;
+            egui::Window::new(locale.text("拖入檔案的處理結果"))
+                .id(egui::Id::new("drop-errors"))
+                .open(&mut visible)
+                .default_width(520.)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(300.)
+                        .show(ui, |ui| {
+                            for (path, error) in &self.drop_state.errors {
+                                ui.monospace(path);
+                                ui.label(locale.message(error));
+                                ui.separator();
+                            }
+                        });
+                });
+            self.drop_state.errors_open = visible;
+        }
+        if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Tooltip,
+                egui::Id::new("file-drop-overlay"),
+            ));
+            let rect = ctx.content_rect();
+            painter.rect_filled(rect, 0., Color32::from_rgba_unmultiplied(9, 37, 46, 215));
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                locale.text("放開以開啟檔案（每檔最多 2 MiB）"),
+                FontId::proportional(23.),
+                Color32::WHITE,
+            );
         }
     }
 }
@@ -1952,6 +2198,18 @@ fn paint_whitespace(
         }
     }
 }
+fn native_options() -> eframe::NativeOptions {
+    eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1080., 720.])
+            .with_min_inner_size([760., 420.])
+            // Windows Explorer uses WM_DROPFILES with our Shell receiver.
+            // Leave winit's OLE receiver disabled so it cannot intercept the drop.
+            .with_drag_and_drop(!cfg!(windows))
+            .with_icon(branding::icon()),
+        ..Default::default()
+    }
+}
 fn main() -> eframe::Result {
     perf::mark_start();
     let arguments: Vec<String> = std::env::args().collect();
@@ -1975,14 +2233,9 @@ fn main() -> eframe::Result {
     }
     eframe::run_native(
         "墨頁 InkPage — 文字編輯器",
-        eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_inner_size([1080., 720.])
-                .with_min_inner_size([760., 420.]),
-            ..Default::default()
-        },
+        native_options(),
         Box::new(|cc| {
-            let mut app = App::new(cc);
+            let mut app = App::new(cc)?;
             let args: Vec<String> = std::env::args().collect();
             if let Some(i) = args.iter().position(|s| s == "--screenshot")
                 && let Some(path) = args.get(i + 1)
@@ -2710,10 +2963,15 @@ mod app_tests {
         a.edit_action(actions::Edit::DuplicateLine);
         assert_eq!(a.docs[0].content.text, "中文🙂\nStraße\nStraße\n尾");
     }
-    fn app() -> App {
+    pub(super) fn app() -> App {
         let (tx, rx) = mpsc::channel();
         let (files_tx, files_rx) = mpsc::channel();
         App {
+            locale: Default::default(),
+            preferences: Default::default(),
+            drop_state: Default::default(),
+            #[cfg(windows)]
+            native_drop: None,
             session: None,
             split_width: 80,
             about_open: false,
@@ -2724,6 +2982,7 @@ mod app_tests {
             files_cancel: None,
             files_report: Default::default(),
             files_query: String::new(),
+            files_options: Default::default(),
             qa_navigate: false,
             docs: vec![Document::new(1, None, Content::default())],
             active: 0,

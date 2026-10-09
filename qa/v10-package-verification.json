@@ -1,0 +1,18 @@
+{
+  "version": "0.10.0",
+  "zip": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\deliverables\\InkPage-0.10.0-windows-x64.zip",
+  "zip_bytes": 5986688,
+  "zip_sha256": "be4267f2a588bf00a79c41205b9d0e153e0343c294ae45034f3afb0715311442",
+  "executable": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\deliverables\\InkPage-0.10.0\\InkPage\\InkPage.exe",
+  "executable_bytes": 7891968,
+  "executable_sha256": "171b9edb58af2eff174126fb35690e1faa0e24211cb67c3f05e0d5387a90fa58",
+  "archive_entries": 329,
+  "settings_or_session_included": false,
+  "packaged_smoke_exit": 0,
+  "packaged_screenshot_size": [
+    1350,
+    900
+  ],
+  "packaged_screenshot_sha256": "88902c77d5b5894cd9dcee14eb2d92374440daeeaa5b9236ce678176ab6f51f7",
+  "packaged_smoke_flow": "close"
+}

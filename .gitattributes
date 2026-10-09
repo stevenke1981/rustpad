@@ -4,3 +4,5 @@
 *.yml text eol=lf
 Cargo.lock text eol=lf
 *.png binary
+*.ico binary
+*.tsv text eol=lf

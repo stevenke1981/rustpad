@@ -1,0 +1,247 @@
+# Traditional Chinese	Simplified Chinese	English	Japanese
+檔案	文件	File	ファイル
+編輯	编辑	Edit	編集
+搜尋	搜索	Search	検索
+檢視	视图	View	表示
+格式	格式	Format	形式
+空白	空白	Whitespace	空白
+語法語言	语法语言	Syntax	構文
+介面語言	界面语言	UI language	表示言語
+新建    Ctrl+N	新建    Ctrl+N	New    Ctrl+N	新規    Ctrl+N
+開啟…    Ctrl+O	打开…    Ctrl+O	Open…    Ctrl+O	開く…    Ctrl+O
+儲存    Ctrl+S	保存    Ctrl+S	Save    Ctrl+S	保存    Ctrl+S
+另存新檔…    Ctrl+Shift+S	另存为…    Ctrl+Shift+S	Save as…    Ctrl+Shift+S	名前を付けて保存…    Ctrl+Shift+S
+關閉分頁    Ctrl+W	关闭标签页    Ctrl+W	Close tab    Ctrl+W	タブを閉じる    Ctrl+W
+摺疊／展開目前區塊    Ctrl+Alt+F	折叠／展开当前区块    Ctrl+Alt+F	Fold / unfold block    Ctrl+Alt+F	ブロックを折りたたむ／展開    Ctrl+Alt+F
+展開全部    Ctrl+Alt+U	展开全部    Ctrl+Alt+U	Unfold all    Ctrl+Alt+U	すべて展開    Ctrl+Alt+U
+跳至配對括號    Ctrl+B	跳转到匹配括号    Ctrl+B	Go to matching bracket    Ctrl+B	対応する括弧へ移動    Ctrl+B
+增加選取行縮排    Tab	增加选中行缩进    Tab	Indent selected lines    Tab	選択行をインデント    Tab
+減少選取行縮排    Shift+Tab	减少选中行缩进    Shift+Tab	Unindent selected lines    Shift+Tab	選択行のインデントを解除    Shift+Tab
+合併選取行    Ctrl+J	合并选中行    Ctrl+J	Join selected lines    Ctrl+J	選択行を結合    Ctrl+J
+分割選取行／目前行    Ctrl+Shift+J	拆分选中行／当前行    Ctrl+Shift+J	Split selected / current line    Ctrl+Shift+J	選択行／現在行を分割    Ctrl+Shift+J
+分割寬度（字素）	拆分宽度（字素）	Split width (graphemes)	分割幅（書記素）
+複製目前行    Ctrl+D	复制当前行    Ctrl+D	Duplicate line    Ctrl+D	現在行を複製    Ctrl+D
+刪除目前行    Ctrl+Shift+K	删除当前行    Ctrl+Shift+K	Delete line    Ctrl+Shift+K	現在行を削除    Ctrl+Shift+K
+選取文字轉大寫    Ctrl+Shift+U	选中文字转大写    Ctrl+Shift+U	Selection to uppercase    Ctrl+Shift+U	選択文字を大文字に    Ctrl+Shift+U
+選取文字轉小寫    Ctrl+U	选中文字转小写    Ctrl+U	Selection to lowercase    Ctrl+U	選択文字を小文字に    Ctrl+U
+復原    Ctrl+Z	撤销    Ctrl+Z	Undo    Ctrl+Z	元に戻す    Ctrl+Z
+重做    Ctrl+Y	重做    Ctrl+Y	Redo    Ctrl+Y	やり直す    Ctrl+Y
+切換行書籤    Ctrl+F2	切换行书签    Ctrl+F2	Toggle bookmark    Ctrl+F2	行のブックマークを切り替え    Ctrl+F2
+下一個書籤    F2	下一个书签    F2	Next bookmark    F2	次のブックマーク    F2
+上一個書籤    Shift+F2	上一个书签    Shift+F2	Previous bookmark    Shift+F2	前のブックマーク    Shift+F2
+清除目前分頁書籤	清除当前标签页书签	Clear tab bookmarks	現在タブのブックマークを削除
+多檔搜尋（唯讀）…	多文件搜索（只读）…	Find in files (read only)…	ファイル内を検索（読み取り専用）…
+尋找上一個    Shift+F3	查找上一个    Shift+F3	Find previous    Shift+F3	前を検索    Shift+F3
+跳至行…    Ctrl+G	跳转到行…    Ctrl+G	Go to line…    Ctrl+G	行へ移動…    Ctrl+G
+搜尋／取代    Ctrl+F / Ctrl+H	搜索／替换    Ctrl+F / Ctrl+H	Find / replace    Ctrl+F / Ctrl+H	検索／置換    Ctrl+F / Ctrl+H
+尋找下一個    F3	查找下一个    F3	Find next    F3	次を検索    F3
+深色主題	深色主题	Dark theme	ダークテーマ
+顯示空格與 Tab（僅視覺標記）	显示空格与 Tab（仅视觉标记）	Show spaces and tabs (visual markers)	空白とタブを表示（表示のみ）
+顯示真實行尾與 EOF 標記	显示实际行尾与 EOF 标记	Show line endings and EOF	改行と EOF を表示
+不自動折行；行尾標記代表檔案換行	不自动换行；行尾标记表示文件换行	No word wrap; markers show file line endings	自動折り返しなし。記号はファイルの改行を表示
+LF（Linux）	LF（Linux）	LF (Linux)	LF（Linux）
+CRLF（Windows）	CRLF（Windows）	CRLF (Windows)	CRLF（Windows）
+CR（舊式格式）	CR（旧式格式）	CR (legacy)	CR（旧形式）
+Tab stops（每 N 欄對齊；Unicode 邏輯字寬）	Tab stops（每 N 列对齐；Unicode 逻辑字宽）	Tab stops (every N columns; Unicode width)	タブストップ（N 桁ごと、Unicode 文字幅）
+Tab 寬度	Tab 宽度	Tab width	タブ幅
+按 Tab 插入空格至下一個 Tab stop	按 Tab 插入空格至下一个 Tab stop	Tab inserts spaces to next tab stop	Tab で次のタブ位置まで空白を挿入
+選取的 Tab → 空格	选中的 Tab → 空格	Selection: tabs → spaces	選択範囲：タブ → 空白
+選取的空格 → Tab	选中的空格 → Tab	Selection: spaces → tabs	選択範囲：空白 → タブ
+全文件 Tab → 空格	全文 Tab → 空格	Document: tabs → spaces	文書全体：タブ → 空白
+全文件空格 → Tab	全文空格 → Tab	Document: spaces → tabs	文書全体：空白 → タブ
+清除行尾空格與 Tab	清除行尾空格与 Tab	Trim trailing spaces and tabs	行末の空白とタブを削除
+確保檔尾一個換行（不刪空白行）	确保文件末尾有换行（保留空白行）	Ensure final newline (keep blank lines)	末尾に改行を追加（空行を保持）
+移除最後一個換行	移除最后一个换行	Remove final newline	最後の改行を削除
+上述內容轉換可 Ctrl+Z 復原；預設不自動清理	上述转换可 Ctrl+Z 撤销；默认不自动清理	Undo conversions with Ctrl+Z; no automatic cleanup	変換は Ctrl+Z で元に戻せます。自動整形は無効
+自動（副檔名／shebang）	自动（扩展名／shebang）	Automatic (extension / shebang)	自動（拡張子／shebang）
+純文字	纯文本	Plain text	プレーンテキスト
+墨頁 InkPage	墨页 InkPage	InkPage	InkPage
+墨頁 InkPage — 文字編輯器	墨页 InkPage — 文本编辑器	InkPage — Text editor	InkPage — テキストエディター
+＋ 新建	＋ 新建	＋ New	＋ 新規
+開啟	打开	Open	開く
+儲存	保存	Save	保存
+復原	撤销	Undo	元に戻す
+重做	重做	Redo	やり直す
+搜尋／取代	搜索／替换	Find / replace	検索／置換
+處理檔案中…	正在处理文件…	Working…	処理中…
+未命名 {0}	未命名 {0}	Untitled {0}	無題 {0}
+拖曳以排序分頁	拖动以排序标签页	Drag to reorder tabs	ドラッグしてタブを並べ替え
+關閉分頁	关闭标签页	Close tab	タブを閉じる
+放開以開啟檔案（每檔最多 2 MiB）	松开以打开文件（每个文件最多 2 MiB）	Drop to open files (up to 2 MiB each)	ドロップして開く（1 ファイル 2 MiB まで）
+可拖入多個檔案；拖曳分頁可調整順序	可拖入多个文件；拖动标签页可调整顺序	Drop files to open; drag tabs to reorder	ファイルをドロップして開く・タブをドラッグして並べ替え
+尋找	查找	Find	検索
+上一個	上一个	Previous	前へ
+下一個	下一个	Next	次へ
+計數	计数	Count	件数
+取代	替换	Replace	置換
+取代此項	替换此项	Replace one	現在の一致を置換
+全部取代	全部替换	Replace all	すべて置換
+符合大小寫	区分大小写	Match case	大文字小文字を区別
+全字	全字	Whole word	単語全体
+循環搜尋	循环搜索	Wrap search	末尾から先頭へ検索
+計數／全部取代限選取範圍	计数／全部替换仅限选中范围	Count / replace all in selection	件数／一括置換を選択範囲に限定
+正規表示式	正则表达式	Regular expression	正規表現
+多檔搜尋	多文件搜索	Find in files	ファイル内検索
+選擇根資料夾…	选择根文件夹…	Choose root folder…	検索フォルダーを選択…
+選擇搜尋根資料夾	选择搜索根文件夹	Choose search root folder	検索フォルダーを選択
+開始搜尋	开始搜索	Start search	検索開始
+取消工作	取消操作	Cancel task	処理をキャンセル
+收起	收起	Hide	閉じる
+尚未選擇根資料夾	尚未选择根文件夹	No root folder selected	検索フォルダーが未選択です
+僅讀磁碟；1000 檔／32 MiB／2000 命中／10000 項目／深度 32；跳過連結、.git、target 與無法安全開啟的檔案	只读磁盘；1000 文件／32 MiB／2000 匹配／10000 项／深度 32；跳过链接、.git、target 和无法安全打开的文件	Disk only; 1000 files / 32 MiB / 2000 hits / 10000 entries / depth 32; skips links, .git, target and unreadable files	ディスクのみ。1000 ファイル／32 MiB／2000 件／10000 項目／深さ 32。リンク・.git・target・安全に開けないファイルは除外
+結果條件：{0}；{1} 處{2}{3}	搜索条件：{0}；{1} 处{2}{3}	Conditions: {0}; {1} matches{2}{3}	条件：{0}、{1} 件{2}{3}
+（已取消；部分結果）	（已取消；部分结果）	 (cancelled; partial results)	（キャンセル済み、一部の結果）
+（已達限制；部分結果）	（已达限制；部分结果）	 (limit reached; partial results)	（上限に達しました、一部の結果）
+大小寫敏感	区分大小写	Case sensitive	大文字小文字を区別
+忽略大小寫	忽略大小写	Case insensitive	大文字小文字を区別しない
+任意位置	任意位置	Anywhere	任意の位置
+跳至行	跳转到行	Go to line	行へ移動
+行號 1–{0}（Unicode 游標，保留內容）	行号 1–{0}（Unicode 光标，保留内容）	Line 1–{0} (Unicode cursor; content preserved)	行番号 1–{0}（Unicode カーソル、内容を保持）
+跳至	跳转	Go	移動
+取消	取消	Cancel	キャンセル
+末尾	末尾	Final newline	末尾改行
+有	有	Yes	あり
+無	无	No	なし
+空格	空格	Spaces	空白
+{0}{1} | {2} | {3} | Tab:{4}{5} | 末尾:{6} | 行 {7}:列 {8} | {9} 字	{0}{1} | {2} | {3} | Tab:{4}{5} | 末尾:{6} | 行 {7}:列 {8} | {9} 字	{0}{1} | {2} | {3} | Tab:{4} {5} | EOF:{6} | Ln {7}:Col {8} | {9} chars	{0}{1} | {2} | {3} | Tab:{4} {5} | 末尾:{6} | 行 {7}:列 {8} | {9} 文字
+關於墨頁 InkPage	关于墨页 InkPage	About InkPage	InkPage について
+緊湊的桌面文字編輯器 · Windows / Linux	简洁的桌面文本编辑器 · Windows / Linux	A compact desktop text editor · Windows / Linux	コンパクトなテキストエディター · Windows / Linux
+原創程式 MIT；致敬傳統編輯器工作流程。	原创程序 MIT；致敬传统编辑器工作流程。	Original MIT software inspired by classic editor workflows.	従来のエディター操作に着想を得た、独自の MIT ソフトウェア。
+技術與相依授權見 README / THIRD_PARTY_LICENSES.md。	技术与依赖许可见 README / THIRD_PARTY_LICENSES.md。	Technical and dependency licenses: README / THIRD_PARTY_LICENSES.md.	技術・依存ライセンス：README / THIRD_PARTY_LICENSES.md。
+尚有未儲存變更	尚有未保存的更改	Unsaved changes	未保存の変更があります
+儲存後關閉	保存后关闭	Save and close	保存して閉じる
+放棄變更	放弃更改	Discard changes	変更を破棄
+結束墨頁 InkPage	退出墨页 InkPage	Exit InkPage	InkPage を終了
+仍有未儲存變更或檔案操作。請先儲存需要的分頁。	仍有未保存的更改或文件操作。请先保存需要的标签页。	Unsaved changes or file operations remain. Save the tabs you need.	未保存の変更またはファイル処理があります。必要なタブを保存してください。
+保留工作階段並結束	保留会话并退出	Keep session and exit	セッションを保存して終了
+放棄全部並結束	放弃全部并退出	Discard all and exit	すべて破棄して終了
+返回編輯	返回编辑	Return to editor	編集に戻る
+拖入檔案的處理結果	拖入文件的处理结果	File drop results	ドロップしたファイルの処理結果
+確定	确定	OK	OK
+就緒 · UTF-8 編輯器 · 2 MiB 上限	就绪 · UTF-8 编辑器 · 2 MiB 上限	Ready · UTF-8 editor · 2 MiB limit	準備完了 · UTF-8 エディター · 上限 2 MiB
+背景分析摺疊區塊中	正在后台分析折叠区块	Analyzing fold blocks…	折りたたみブロックを解析中…
+已還原工作階段；原始文件未寫入	已恢复会话；未写入原始文件	Session restored; source files were not written	セッションを復元しました。元ファイルは未変更
+載入期間已有編輯；停止工作階段覆寫，請重新啟動還原	加载期间已有编辑；停止覆盖会话，请重新启动恢复	Edits made during loading; session writes stopped. Restart to restore	読み込み中に編集されました。セッションの上書きを停止。再起動で復元
+工作階段停用：{0}	会话已停用：{0}	Session disabled: {0}	セッション無効：{0}
+工作階段快照已保存（原檔未儲存）	会话快照已保存（原文件未保存）	Session snapshot saved (source files unsaved)	セッションを保存しました（元ファイルは未保存）
+快照保存失敗，前次快照保留：{0}	快照保存失败，保留上次快照：{0}	Snapshot save failed; previous snapshot kept: {0}	スナップショット保存失敗。前回の内容を保持：{0}
+工作階段背景程序已停止	会话后台线程已停止	Session worker stopped	セッション処理が停止しました
+背景分析括號中	正在后台分析括号	Analyzing brackets…	括弧を解析中…
+行處理完成；Ctrl+Z 可復原	行处理完成；Ctrl+Z 可撤销	Line operation complete; Ctrl+Z to undo	行の処理が完了。Ctrl+Z で元に戻せます
+第 {0} 行書籤已切換；共 {1} 個	第 {0} 行书签已切换；共 {1} 个	Toggled bookmark at line {0}; {1} total	{0} 行目のブックマークを切り替え、合計 {1} 個
+已清除目前分頁書籤	已清除当前标签页书签	Tab bookmarks cleared	現在タブのブックマークを削除しました
+已跳至第 {0} 行書籤	已跳转到第 {0} 行书签	Moved to bookmark at line {0}	{0} 行目のブックマークに移動しました
+目前分頁沒有書籤	当前标签页没有书签	No bookmarks in this tab	現在タブにブックマークはありません
+請先選擇搜尋根資料夾	请先选择搜索根文件夹	Choose a search root folder first	検索フォルダーを選択してください
+背景多檔搜尋中；可取消，僅讀取磁碟內容	正在后台搜索多个文件；可取消，仅读取磁盘内容	Searching files; cancellable, reads disk only	ファイルを検索中。キャンセル可能、ディスク読み取りのみ
+請等待檔案工作完成	请等待文件操作完成	Wait for the file operation to finish	ファイル処理の完了をお待ちください
+搜尋根已消失	搜索根已消失	Search root is no longer available	検索フォルダーが見つかりません
+結果已離開搜尋根；拒絕開啟	结果已超出搜索根；拒绝打开	Result is outside the search root; open refused	検索フォルダー外のため、開けません
+檔案已變更，請重新搜尋	文件已更改，请重新搜索	File changed; search again	ファイルが変更されました。再検索してください
+已開啟文件與搜尋結果不同；保留分頁，請重新搜尋	已打开文件与搜索结果不同；保留标签页，请重新搜索	Open document differs from results; tab kept. Search again	開いている文書と検索結果が異なります。タブを保持し、再検索してください
+已定位第 {0} 行	已定位第 {0} 行	Moved to line {0}	{0} 行目に移動しました
+請等待目前背景工作完成	请等待当前后台任务完成	Wait for the current task to finish	現在の処理の完了をお待ちください
+搜尋字串超過 16 KiB 上限	搜索字符串超过 16 KiB 上限	Search query exceeds 16 KiB	検索文字列が上限 16 KiB を超えています
+背景搜尋／取代中；可繼續編輯，過期結果會捨棄	正在后台搜索／替换；可继续编辑，过期结果会丢弃	Searching / replacing; editing may continue, stale results are discarded	検索／置換中。編集は継続可能、古い結果は破棄されます
+已選取符合文字	已选中匹配文字	Match selected	一致する文字を選択しました
+找不到符合文字	找不到匹配文字	No match found	一致する文字がありません
+已取代此項	已替换此项	Match replaced	現在の一致を置換しました
+請先選取文字；未取代	请先选中文字；未替换	Select text first; nothing replaced	文字を選択してください。置換は未実行
+已取代 {0} 處	已替换 {0} 处	Replaced {0} matches	{0} 件を置換しました
+文件共有 {0} 處	文档共有 {0} 处	{0} matches in document	文書内に {0} 件
+選取範圍共有 {0} 處	选中范围共有 {0} 处	{0} matches in selection	選択範囲内に {0} 件
+已跳至第 {0} 行	已跳转到第 {0} 行	Moved to line {0}	{0} 行目に移動しました
+行號超出範圍，游標未移動	行号超出范围，光标未移动	Line out of range; cursor unchanged	行番号が範囲外です。カーソルは未変更
+請先選取文字	请先选中文字	Select text first	文字を選択してください
+空白處理已完成；Ctrl+Z 可復原	空白处理已完成；Ctrl+Z 可撤销	Whitespace operation complete; Ctrl+Z to undo	空白の処理が完了。Ctrl+Z で元に戻せます
+內容無需變更	内容无需更改	No changes needed	変更は不要です
+編輯完成；Ctrl+Z 可復原	编辑完成；Ctrl+Z 可撤销	Edit complete; Ctrl+Z to undo	編集が完了。Ctrl+Z で元に戻せます
+搜尋完成：{0} 處／{1} 檔，略過 {2}	搜索完成：{0} 处／{1} 文件，跳过 {2}	Search complete: {0} matches / {1} files, {2} skipped	検索完了：{0} 件／{1} ファイル、{2} 個を除外
+搜尋已取消：{0} 處／{1} 檔，略過 {2}	搜索已取消：{0} 处／{1} 文件，跳过 {2}	Search cancelled: {0} matches / {1} files, {2} skipped	検索をキャンセル：{0} 件／{1} ファイル、{2} 個を除外
+；已達限制，結果不完整	；已达限制，结果不完整	; limit reached, incomplete results	。上限に達しました。結果は不完全です
+摺疊分析已過期，請重新操作	折叠分析已过期，请重试	Fold analysis is stale; try again	折りたたみ解析が古くなりました。再実行してください
+摺疊／展開完成；原文及游標保留，編輯前自動展開	折叠／展开完成；保留原文和光标，编辑前自动展开	Fold / unfold complete; text and cursor kept, unfolds before editing	折りたたみ／展開が完了。原文とカーソルを保持、編集前に自動展開
+目前沒有可摺疊的多行括號區塊	当前没有可折叠的多行括号区块	No multiline bracket block to fold	折りたたみ可能な複数行の括弧ブロックがありません
+括號分析已過期，請重新操作	括号分析已过期，请重试	Bracket analysis is stale; try again	括弧の解析が古くなりました。再実行してください
+已跳至配對括號	已跳转到匹配括号	Moved to matching bracket	対応する括弧に移動しました
+游標處沒有可配對括號	光标处没有可匹配的括号	No matching bracket at cursor	カーソル位置に対応する括弧がありません
+背景結果已過期，文件未修改；請重新操作	后台结果已过期，文档未修改；请重试	Task result is stale; document unchanged. Try again	処理結果が古くなりました。文書は未変更、再実行してください
+背景計數：{0} 處	后台计数：{0} 处	Count: {0} matches	件数：{0} 件
+背景取代完成：{0} 處	后台替换完成：{0} 处	Replace complete: {0} matches	置換完了：{0} 件
+已開啟	已打开	Opened	開きました
+開啟失敗：{0}	打开失败：{0}	Open failed: {0}	開けません：{0}
+已安全儲存	已安全保存	Saved safely	安全に保存しました
+已取消儲存	已取消保存	Save cancelled	保存をキャンセルしました
+儲存失敗（保留原檔）：{0}	保存失败（保留原文件）：{0}	Save failed (original kept): {0}	保存失敗（元ファイルを保持）：{0}
+（>256 KiB 純文）	（>256 KiB 纯文本）	 (plain text: >256 KiB)	（256 KiB 超、プレーンテキスト）
+（grammar 不支援／錯誤：純文）	（grammar 不支持／错误：纯文本）	 (grammar unavailable / error: plain text)	（構文未対応／エラー：プレーンテキスト）
+（背景配色中）	（正在后台着色）	 (highlighting…)	（構文を色付け中…）
+超過 2 MiB 上限	超过 2 MiB 上限	Exceeds the 2 MiB limit	上限 2 MiB を超えています
+超過 20,000 行上限	超过 20,000 行上限	Exceeds the 20,000 line limit	上限 20,000 行を超えています
+單行超過 16 KiB 上限	单行超过 16 KiB 上限	A line exceeds 16 KiB	1 行が上限 16 KiB を超えています
+超過 2 MiB 檔案上限	超过 2 MiB 文件上限	File exceeds 2 MiB	ファイルが上限 2 MiB を超えています
+不是有效 UTF-8；首版不支援 UTF-16、Big5 或其他編碼	不是有效 UTF-8；暂不支持 UTF-16、Big5 或其他编码	Invalid UTF-8; UTF-16, Big5 and other encodings are unsupported	有効な UTF-8 ではありません。UTF-16・Big5・その他の符号化は未対応
+包含 NUL，可能是二進位檔案	包含 NUL，可能是二进制文件	Contains NUL; possibly a binary file	NUL を含みます。バイナリファイルの可能性があります
+偵測到混合 CRLF／LF／CR；拒絕開啟以避免靜默改寫，原檔未變更	检测到混合 CRLF／LF／CR；拒绝打开以防静默改写，原文件未更改	Mixed CRLF / LF / CR; open refused to avoid changing line endings, original kept	CRLF／LF／CR が混在。改行の変更を避けるため開けません。元ファイルは未変更
+內容包含不支援的 CR 或 NUL	内容包含不支持的 CR 或 NUL	Content contains unsupported CR or NUL	内容に未対応の CR または NUL が含まれています
+儲存內容超過 2 MiB 上限	保存内容超过 2 MiB 上限	Saved content would exceed 2 MiB	保存内容が上限 2 MiB を超えています
+檔案唯讀	文件只读	File is read only	ファイルは読み取り専用です
+無效選取範圍	无效选中范围	Invalid selection range	選択範囲が無効です
+Tab 寬度需介於 1 至 8	Tab 宽度必须介于 1 到 8	Tab width must be 1–8	タブ幅は 1〜8 にしてください
+無效縮排單位	无效缩进单位	Invalid indentation unit	インデント単位が無効です
+取代結果超限	替换结果超限	Replacement result exceeds the limit	置換結果が上限を超えています
+取代結果超過 2 MiB 上限	替换结果超过 2 MiB 上限	Replacement result exceeds 2 MiB	置換結果が上限 2 MiB を超えています
+分割寬度須為 1–1000 個字素	拆分宽度必须为 1–1000 个字素	Split width must be 1–1000 graphemes	分割幅は 1〜1000 書記素にしてください
+請先選取跨行文字	请先选中跨行文字	Select text across lines first	複数行の文字を選択してください
+分割結果超過 2 MiB 上限	拆分结果超过 2 MiB 上限	Split result exceeds 2 MiB	分割結果が上限 2 MiB を超えています
+請先選取至少兩行	请先选中至少两行	Select at least two lines	2 行以上を選択してください
+正規表示式須為 1 至 16 KiB	正则表达式必须为 1 到 16 KiB	Regular expression must be 1 byte–16 KiB	正規表現は 1 バイト〜16 KiB にしてください
+正規表示式錯誤：{0}	正则表达式错误：{0}	Regular expression error: {0}	正規表現エラー：{0}
+匹配超過 20,000 處上限；未執行操作	匹配超过 20,000 处上限；未执行操作	More than 20,000 matches; operation not performed	一致が上限 20,000 件を超えています。処理は未実行
+取代模板超過 16 KiB 上限	替换模板超过 16 KiB 上限	Replacement template exceeds 16 KiB	置換テンプレートが上限 16 KiB を超えています
+匹配超過 20,000 處上限；未取代	匹配超过 20,000 处上限；未替换	More than 20,000 matches; nothing replaced	一致が上限 20,000 件を超えています。置換は未実行
+搜尋字串須為 1 至 16 KiB	搜索字符串必须为 1 到 16 KiB	Search query must be 1 byte–16 KiB	検索文字列は 1 バイト〜16 KiB にしてください
+掃描根必須是實體資料夾；不接受 symlink/junction	搜索根必须是实际文件夹；不接受 symlink/junction	Search root must be a real folder; symlinks / junctions are unsupported	実フォルダーを選択してください。シンボリックリンク／ジャンクションは未対応
+找不到語法規則	找不到语法规则	Syntax rules not found	構文規則が見つかりません
+{0} grammar 未提供，改為純文字	{0} grammar 不可用，改为纯文本	{0} grammar unavailable; using plain text	{0} の構文が未対応。プレーンテキストに切り替え
+已被較新版本取代	已被较新版本替代	Superseded by a newer version	新しいバージョンに置き換えられました
+grammar span 未涵蓋完整原文	grammar span 未覆盖完整原文	Grammar spans do not cover the whole source	構文の範囲が原文全体を覆っていません
+無法鎖定工作階段（另一程序或上次異常結束的 .lock）：{0}	无法锁定会话（另一进程或上次异常退出留下的 .lock）：{0}	Cannot lock session (another process or stale .lock): {0}	セッションをロックできません（別プロセスまたは残存 .lock）：{0}
+工作階段數值超限	会话数值超限	Session value exceeds the limit	セッションの数値が上限を超えています
+工作階段超過 32 MiB，前次快照保留	会话超过 32 MiB，保留上次快照	Session exceeds 32 MiB; previous snapshot kept	セッションが 32 MiB を超えています。前回の内容を保持
+工作階段最多 32 分頁，前次快照保留	会话最多 32 标签页，保留上次快照	Session supports up to 32 tabs; previous snapshot kept	セッションは 32 タブまで。前回の内容を保持
+工作階段游標無效	会话光标无效	Invalid session cursor	セッションのカーソルが無効です
+工作階段不支援非 Unicode 路徑，前次快照保留	会话不支持非 Unicode 路径，保留上次快照	Non-Unicode session paths unsupported; previous snapshot kept	非 Unicode パスは未対応。前回の内容を保持
+工作階段超限	会话超限	Session exceeds the limit	セッションが上限を超えています
+快照長度錯誤	快照长度错误	Invalid snapshot length	スナップショットの長さが無効です
+工作階段截斷	会话被截断	Truncated session	セッションが途中で切れています
+數值錯誤	数值错误	Invalid value	数値が無効です
+快照欄位超限	快照字段超限	Snapshot field exceeds the limit	スナップショットの項目が上限を超えています
+快照不是 UTF-8	快照不是 UTF-8	Snapshot is not UTF-8	スナップショットは UTF-8 ではありません
+快照 BOM 錯誤	快照 BOM 错误	Invalid snapshot BOM	スナップショットの BOM が無効です
+快照 EOL 錯誤	快照 EOL 错误	Invalid snapshot line ending	スナップショットの改行形式が無効です
+工作階段格式／版本錯誤，保留原快照	会话格式／版本错误，保留原快照	Invalid session format / version; original snapshot kept	セッション形式／バージョンが無効。元の内容を保持
+工作階段完整性檢查失敗，保留原快照	会话完整性检查失败，保留原快照	Session integrity check failed; original snapshot kept	セッションの整合性確認に失敗。元の内容を保持
+快照分頁數無效	快照标签页数量无效	Invalid snapshot tab count	スナップショットのタブ数が無効です
+快照路徑錯誤	快照路径错误	Invalid snapshot path	スナップショットのパスが無効です
+快照游標錯誤	快照光标错误	Invalid snapshot cursor	スナップショットのカーソルが無効です
+快照有額外資料	快照含额外数据	Snapshot contains extra data	スナップショットに余分なデータがあります
+工作階段路徑必須為一般檔案且小於 32 MiB	会话路径必须是普通文件且小于 32 MiB	Session must be a regular file smaller than 32 MiB	セッションは 32 MiB 未満の通常ファイルにしてください
+快照路徑不可與任何原始文件相同	快照路径不能与任何原始文件相同	Snapshot path must differ from source files	スナップショットのパスは元ファイルと別にしてください
+工作階段已被外部修改，停止覆寫	会话已被外部修改，停止覆盖	Session changed externally; writes stopped	外部でセッションが変更されました。上書きを停止
+檔案已被外部修改；拒絕覆寫，請另存新檔	文件已被外部修改；拒绝覆盖，请另存为	File changed externally; overwrite refused, use Save as	外部でファイルが変更されました。名前を付けて保存してください
+語系設定格式錯誤，保留原檔	语言设置格式错误，保留原文件	Invalid language settings; original file kept	言語設定の形式が無効です。元ファイルを保持
+語系設定已被外部修改，保留原檔	语言设置已被外部修改，保留原文件	Language settings changed externally; original file kept	言語設定が外部で変更されました。元ファイルを保持
+語系設定未保存：{0}	语言设置未保存：{0}	Language settings not saved: {0}	言語設定は未保存：{0}
+介面語言已切換	界面语言已切换	UI language changed	表示言語を変更しました
+拖入開啟中…	正在打开拖入文件…	Opening dropped files…	ドロップしたファイルを開いています…
+拖入完成：開啟 {0}、已開啟 {1}、失敗 {2}、略過 {3}	拖入完成：打开 {0}、已打开 {1}、失败 {2}、跳过 {3}	Drop complete: {0} opened, {1} already open, {2} failed, {3} skipped	ドロップ完了：新規 {0}、既存 {1}、失敗 {2}、除外 {3}
+拖入佇列已達 32 個檔案上限	拖入队列已达 32 个文件上限	Drop queue reached the 32 file limit	ドロップ待機数が上限 32 ファイルに達しました
+拖入檔案最多開啟 32 個分頁	拖入文件最多打开 32 个标签页	File drops support up to 32 open tabs	ドロップで開けるタブは 32 個までです
+請拖入一般檔案；資料夾不會遞迴開啟	请拖入普通文件；不会递归打开文件夹	Drop regular files; folders are not opened recursively	通常ファイルをドロップしてください。フォルダー内は再帰的に開きません
+不支援沒有本機路徑的拖入項目	不支持没有本地路径的拖入项目	Dropped item has no local file path	ローカルパスがない項目はドロップできません
+分頁順序已更新	标签页顺序已更新	Tab order updated	タブの順序を変更しました
+磁碟內容已被外部修改；請另存新檔避免覆寫	磁盘内容已被外部修改；请另存为以免覆盖	File changed externally; use Save as to avoid overwriting	外部でファイルが変更されました。名前を付けて保存してください
+不支援的介面語言：{0}	不支持的界面语言：{0}	Unsupported UI language: {0}	未対応の表示言語：{0}
+請等待檔案操作完成再關閉分頁	请等待文件操作完成后再关闭标签页	Wait for the file operation before closing the tab	ファイル処理が完了してからタブを閉じてください
+另存新檔	另存为	Save as	名前を付けて保存

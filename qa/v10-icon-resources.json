@@ -1,0 +1,47 @@
+{
+  "executable": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\target\\release\\rustpad.exe",
+  "icon_sizes": [
+    [
+      16,
+      16
+    ],
+    [
+      20,
+      20
+    ],
+    [
+      24,
+      24
+    ],
+    [
+      32,
+      32
+    ],
+    [
+      40,
+      40
+    ],
+    [
+      48,
+      48
+    ],
+    [
+      64,
+      64
+    ],
+    [
+      128,
+      128
+    ],
+    [
+      256,
+      256
+    ]
+  ],
+  "version": {
+    "ProductName": "InkPage",
+    "FileDescription": "InkPage Text Editor",
+    "FileVersion": "0.10.0",
+    "ProductVersion": "0.10.0"
+  }
+}

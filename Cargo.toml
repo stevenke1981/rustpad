@@ -1,6 +1,6 @@
 [package]
 name = "rustpad"
-version = "0.9.0"
+version = "0.10.1"
 edition = "2024"
 license = "MIT"
 description = "A compact original desktop text editor"
@@ -15,6 +15,14 @@ two-face = { version = "=0.5.2", default-features = false, features = ["syntect-
 unicode-width = "=0.2.2"
 regex = "=1.13.1"
 unicode-segmentation = "=1.13.3"
+
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "=0.6.2"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_System_Memory"] }
 
 [profile.release]
 opt-level = "s"

@@ -2,6 +2,7 @@
 /qa/session-fixtures/
 *.session
 *.session.lock
+*.settings
 
 /metadata-windows.json
 /qa/*.log
