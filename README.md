@@ -1,6 +1,6 @@
 # 墨頁 InkPage
 
-0.7 新增安全工作階段還原。固定核心覆蓋率 28/36（77.8%），不是完整 Notepad++ 產品百分比；[功能矩陣](ALIGNMENT.md)、[操作與限制](DIFF-0.7.md)、[本輪實測](PERFORMANCE-0.5.md)。
+0.8 已補括號跳轉、縮排／自動縮排、工作階段還原與區塊摺疊。固定核心覆蓋率 29/36（80.6%），不是完整 Notepad++ 產品百分比；[功能矩陣](ALIGNMENT.md)、[操作與限制](DIFF-0.8.md)、[本輪實測](PERFORMANCE-0.8.md)。
 
 以 Rust / eframe-egui 編寫的原創桌面文字編輯器，致敬 Notepad++ 的緊湊傳統桌面工作流程。選單、工具列、多分頁、行號、搜尋取代、亮暗主題、繁中介面；無 WebView。InkPage 原創程式為 MIT，未複製 Notepad++ GPL 程式、標誌或素材。
 
@@ -39,3 +39,5 @@ Windows 需 Rust MSVC、MSVC build tools、Windows SDK。Linux 需 C compiler、
 0.6：Ctrl+B 跳至游標處／前一字元的配對括號；語法模式忽略 string/comment scope。編輯選單增加／減少縮排；跨行選取 Tab 增加、Shift+Tab 減少；Enter 延续目前行 ASCII 空格／Tab 前綴。IME 組字事件交由既有 widget，未宣稱實測。
 
 工作階段預設保存在執行檔旁 `InkPage.session`，每秒背景保存一次變動快照，含分頁、未存內容、saved 基準、游標與選取。結束時可選「保留工作階段並結束」，等待成功再結束；「放棄全部」保存 saved 基準。`--session <path>` 指定獨立快照、`--no-session` 停用。最多 32 分頁／32 MiB（含原文及 saved 副本）；唯讀目錄、損壞快照、外部改寫或其他程序鎖定會明示停用且保留舊快照。還原不寫原文件；原檔外部改寫仍由既有儲存衝突保護。異常退出可能留下 `.lock`，確認所有 InkPage 已關閉後自行移除該鎖；不自動刪除。快照含純文字未存內容，請保存在自己的私有目錄，不隨 ZIP 散布。手動語言、書籤、undo 歷史及檢視設定不在此版快照範圍。
+
+0.8：Ctrl+Alt+F 或編輯選單切換目前多行括號區塊摺疊；Ctrl+Alt+U 展開全部。隱藏内部完整行，保留開始／結束行，gutter `>` 標記；原文與 Unicode 座標不替換為假文字。編輯、键盤導航、搜尋／跳行／書籤導航先展開；任何內容改動清除舊摺疊，避免錯位。語法字串／註解排除沿用 grammar；純文字不推斷字串。僅括號 () [] {} 定義區塊，未提供 Python 縮排、HTML tag 或 Markdown heading 摺疊。摺疊狀態不跨工作階段保存。

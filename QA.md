@@ -22,3 +22,9 @@ release exe 的 eframe/glow framebuffer Screenshot 事件，opt-in fixtures 後�
 歷史：QA-0.1..0.4.md；效能與大小見 PERFORMANCE-0.5.md。完成定義仍為既定 data/widget/renderer 等級；固定核心矩陣 25/36，非全產品比例。
 
 已觀察視覺限制：目前 OS 字型／egui renderer 將 ZWJ family 顯示成多個圖形；byte/grapheme 測試確認未插入換行於群集內，但不宣稱完整 emoji shaping。原生 OS 標題列不在 framebuffer 截圖中，名稱設定由 eframe run_native 參數確認。
+
+## 0.6–0.8 核心收尾
+
+75 Windows tests、fmt、clippy -D warnings、release build 通過。逐項 RED→實作→回歸：括號與縮排兩組stub失敗、session三組stub失敗、fold行高／映射stub失敗；詳見DIFF-0.6/0.7/0.8。六張真實Windows framebuffer已檢視：v06-bracket/indent、v07-session-save/restore、v08-fold/fold-expanded；session兩個獨立程序，原合成文件SHA不变，無遺留lock。
+
+固定36項：29完成／6部分／1未驗證／0缺少。資料/widget/framebuffer不代替OS keyboard／file dialog／clipboard。原生工具缺口、剩餘七項與待驗步驟見QA-NATIVE.md；LinuxGUI／完整IME仍未驗，UbuntuCI不代替GUI。0.6與0.7CI均成功。

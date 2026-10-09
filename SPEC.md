@@ -37,3 +37,9 @@ App 中 >256 KiB 文件或 >128-byte query 的搜尋/count/replace 放背景 thr
 `lines.rs` 整行範圍候選轉換，選取末端為下一行起點時排除該行；join 僅把區段內 LF 轉 ASCII space，split 每行按 unicode-segmentation 1.13.3 extended grapheme（1–1000）插入 LF。encode/所有原有上限通過才提交，一筆 undo；不實作詞語折行或像素寬度換行。這個 crate 已在 locked 依賴圖內，本輪僅增加直接使用，沒有升級其版本。
 
 UI/title/about 與可攜包改用 InkPage，原 repo/crate/cache key 繼續相容；不更名 GitHub repo、不新增 persistent 設定。code folding 暫不做：現有 TextEdit 直接使用完整 Content，安全摺疊需要獨立顯示字串與原文 cursor/range/gutter 映射。
+
+## 0.6–0.8 核心補齊
+
+`indent.rs` 提供候選內容驗證後的行縮排／Enter，單次 history 交易。`structure.rs` 以 syntect ParseState／ScopeStack 取得 code mask，括號配對忽略 string/comment；括號／摺疊分析在 worker，套用前核對文件 snapshot。`fold.rs` 保留完整 LayoutJob.text 與 scalar 座標，只將完整内部行排版高度設為零；編輯前展開、內容改動清除，gutter 使用真實來源行號。
+
+`session.rs` 用有版本、長度上限及校验的獨立 binary snapshot，最多 32 分頁／32 MiB；content 與 saved 分開保留，游標嚴格驗證。worker 背景載入／原子保存、預期舊 bytes 核對及獨占 .lock；normal exit 最新 snapshot 成功後才結束。只還原記憶體，不寫原文件；損壞／衝突停用並保留原快照。只讀目錄明示停用，可 --session 指定或 --no-session 停用。前0.5沒有持久快照；不搬移舊路徑或改RustPad內部專案/repo名稱。

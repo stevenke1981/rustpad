@@ -3,6 +3,7 @@ mod actions;
 mod bookmarks;
 mod core;
 mod filesearch;
+mod fold;
 mod indent;
 mod lines;
 mod pattern;
@@ -38,6 +39,7 @@ struct Document {
     language: Option<syntax::Language>,
     bookmarks: bookmarks::Bookmarks,
     composing: bool,
+    folds: fold::State,
 }
 impl Document {
     fn new(id: u64, path: Option<PathBuf>, content: Content) -> Self {
@@ -53,6 +55,7 @@ impl Document {
             language: None,
             bookmarks: Default::default(),
             composing: false,
+            folds: Default::default(),
         }
     }
     fn dirty(&self) -> bool {
@@ -71,6 +74,13 @@ impl Document {
     }
 }
 enum ResultEvent {
+    Fold(
+        u64,
+        Content,
+        Option<syntax::Language>,
+        usize,
+        Result<Option<std::ops::Range<usize>>, String>,
+    ),
     Bracket(
         u64,
         Content,
@@ -139,6 +149,33 @@ struct App {
     repaint: egui::Context,
 }
 impl App {
+    fn fold_block(&mut self) {
+        if self.busy {
+            return;
+        }
+        let d = &self.docs[self.active];
+        let id = d.id;
+        let before = d.content.clone();
+        let manual = d.language;
+        let cursor = d.cursor;
+        let language = syntax::resolve(d.path.as_deref(), &before.text, manual);
+        let tx = self.tx.clone();
+        let ctx = self.repaint.clone();
+        self.busy = true;
+        self.message = "背景分析摺疊區塊中".into();
+        std::thread::spawn(move || {
+            let result = fold::block(&before.text, language, cursor);
+            let _ = tx.send(ResultEvent::Fold(id, before, manual, cursor, result));
+            ctx.request_repaint();
+        });
+    }
+    fn unfold(&mut self) {
+        if self.docs[self.active].folds.hidden.is_empty() {
+            return;
+        }
+        self.docs[self.active].folds.hidden.clear();
+        self.selection = Some(self.docs[self.active].selected);
+    }
     fn snapshot(&self) -> session::Snapshot {
         session::Snapshot {
             tabs: self
@@ -317,6 +354,9 @@ impl App {
         }
     }
     fn bookmark_action(&mut self, action: i8) {
+        if action != 0 {
+            self.unfold();
+        }
         let d = &mut self.docs[self.active];
         d.bookmarks.sync(&d.content.text);
         let current = d
@@ -675,6 +715,7 @@ impl App {
         true
     }
     fn find_direction(&mut self, backward: bool) {
+        self.unfold();
         let d = &self.docs[self.active];
         let mut from = if backward {
             d.selected.0.min(d.cursor)
@@ -827,6 +868,7 @@ impl App {
         );
     }
     fn go_to_line(&mut self) {
+        self.unfold();
         let d = &mut self.docs[self.active];
         if let Ok(line) = self.goto_input.trim().parse::<usize>()
             && let Some(index) = actions::goto_line(&d.content.text, line)
@@ -919,6 +961,26 @@ impl App {
         while let Ok(event) = self.rx.try_recv() {
             self.busy = false;
             match event {
+                ResultEvent::Fold(id, before, language, cursor, result) => {
+                    let d = &mut self.docs[self.active];
+                    if d.id != id
+                        || d.content != before
+                        || d.language != language
+                        || d.cursor != cursor
+                    {
+                        self.message = "摺疊分析已過期，請重新操作".into();
+                        continue;
+                    }
+                    match result {
+                        Ok(Some(range)) => {
+                            d.folds.toggle(&d.content.text, range);
+                            self.selection = Some(d.selected);
+                            self.message = "摺疊／展開完成；原文及游標保留，編輯前自動展開".into();
+                        }
+                        Ok(None) => self.message = "目前沒有可摺疊的多行括號區塊".into(),
+                        Err(error) => self.message = error,
+                    }
+                }
                 ResultEvent::Bracket(id, before, language, cursor, result) => {
                     let d = &mut self.docs[self.active];
                     if d.id != id
@@ -1106,6 +1168,7 @@ impl eframe::App for App {
         self.poll();
         for d in &mut self.docs {
             d.bookmarks.sync(&d.content.text);
+            d.folds.sync(&d.content.text);
         }
         self.syntax.poll();
         self.syntax
@@ -1139,9 +1202,14 @@ impl eframe::App for App {
         let mut line_action = None;
         let mut indent_action = None;
         let mut bracket = false;
+        let mut folding = false;
+        let mut unfolding = false;
         let editor_focused = ctx.memory(|memory| {
             memory.has_focus(egui::Id::new(("editor", self.docs[self.active].id)))
         });
+        if editor_focused && ctx.input(|i| fold::should_expand(&i.events)) {
+            self.unfold();
+        }
         ctx.input_mut(|i| {
             new = i.consume_key(Modifiers::CTRL, Key::N);
             open = i.consume_key(Modifiers::CTRL, Key::O);
@@ -1171,6 +1239,8 @@ impl eframe::App for App {
                     }
                 }
                 bracket = i.consume_key(Modifiers::CTRL, Key::B);
+                folding = i.consume_key(Modifiers::CTRL | Modifiers::ALT, Key::F);
+                unfolding = i.consume_key(Modifiers::CTRL | Modifiers::ALT, Key::U);
                 if !self.docs[self.active].composing
                     && !i.events.iter().any(|e| matches!(e, egui::Event::Ime(_)))
                     && i.consume_key(Modifiers::NONE, Key::Enter)
@@ -1237,6 +1307,8 @@ impl eframe::App for App {
                     close |= ui.button("關閉分頁    Ctrl+W").clicked();
                 });
                 ui.menu_button("編輯", |ui| {
+                    folding |= ui.button("摺疊／展開目前區塊    Ctrl+Alt+F").clicked();
+                    unfolding |= ui.button("展開全部    Ctrl+Alt+U").clicked();
                     bracket |= ui.button("跳至配對括號    Ctrl+B").clicked();
                     if ui.button("增加選取行縮排    Tab").clicked() {
                         indent_action = Some(1);
@@ -1482,7 +1554,14 @@ impl eframe::App for App {
             self.indent_action(action);
         }
         if bracket {
+            self.unfold();
             self.jump_bracket();
+        }
+        if unfolding {
+            self.unfold();
+        }
+        if folding {
+            self.fold_block();
         }
         if new {
             self.new_doc()
@@ -1580,6 +1659,7 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 let d = &mut self.docs[self.active];
                 d.bookmarks.sync(&d.content.text);
+                d.folds.sync(&d.content.text);
                 let before =
                     (!ctx.input(|input| input.events.is_empty())).then(|| d.content.clone());
                 let id = egui::Id::new(("editor", d.id));
@@ -1587,8 +1667,8 @@ impl eframe::App for App {
                 if let Some((start, end)) = self.selection.take() {
                     let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
                     state.cursor.set_char_range(Some(CCursorRange::two(
-                        CCursor::new(start),
-                        CCursor::new(end),
+                        CCursor::new(if d.cursor == start { end } else { start }),
+                        CCursor::new(if d.cursor == start { start } else { end }),
                     )));
                     state.store(ctx, id);
                     ctx.memory_mut(|m| m.request_focus(id));
@@ -1598,12 +1678,18 @@ impl eframe::App for App {
                     .id_salt(("scroll", d.id))
                     .show(ui, |ui| {
                         ui.horizontal_top(|ui| {
-                            let count = d.content.text.matches('\n').count() + 1;
-                            let nums = (1..=count)
+                            let nums = fold::gutter(&d.content.text, &d.folds.hidden)
+                                .into_iter()
                                 .map(|n| {
                                     format!(
                                         "{}{n:>4}\n",
-                                        if d.bookmarks.lines.contains(&(n - 1)) {
+                                        if d.folds.hidden.iter().any(|r| d.content.text[..r.start]
+                                            .matches('\n')
+                                            .count()
+                                            == n)
+                                        {
+                                            ">"
+                                        } else if d.bookmarks.lines.contains(&(n - 1)) {
                                             "*"
                                         } else {
                                             " "
@@ -1627,6 +1713,7 @@ impl eframe::App for App {
                             let manual = d.language;
                             let doc_id = d.id;
                             let service = &mut self.syntax;
+                            let hidden = d.folds.hidden.clone();
                             let mut layouter =
                                 move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _width: f32| {
                                     let language =
@@ -1637,7 +1724,7 @@ impl eframe::App for App {
                                             fonts.glyph_width(&FontId::monospace(15.), ' '),
                                         )
                                     });
-                                    let job = service.layout(
+                                    let mut job = service.layout(
                                         doc_id,
                                         text.as_str(),
                                         language,
@@ -1648,6 +1735,7 @@ impl eframe::App for App {
                                         space,
                                         cache,
                                     );
+                                    fold::apply(&mut job, &hidden);
                                     ui.fonts_mut(|fonts| fonts.layout_job(job))
                                 };
                             let output = egui::TextEdit::multiline(&mut d.content.text)
@@ -1807,6 +1895,9 @@ fn paint_whitespace(
         Color32::from_rgb(130, 151, 165)
     };
     for row in &output.galley.rows {
+        if row.row.size.y <= 0. {
+            continue;
+        }
         let origin = output.galley_pos + row.pos.to_vec2();
         let rect = egui::Rect::from_min_size(origin, row.row.size);
         if !ui.clip_rect().intersects(rect) {
@@ -1994,6 +2085,19 @@ fn main() -> eframe::Result {
                         app.search = false;
                         app.show_eol = true;
                     }
+                    "fold" | "fold-expanded" => {
+                        app.docs[0].content = Content {text:"fn main() {\n    let 中文 = r###\"} 字串 {\"###;\n    if true {\n        println!(\"中文🙂\");\n        // 被摺疊的原文完整保留\n    }\n}\n\nfn next() {\n    println!(\"下一個區塊\");\n}\n".into(),bom:true,newline:Newline::Crlf};
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.docs[0].language = Some(syntax::Language::Rust);
+                        app.docs[0].cursor = 10;
+                        app.docs[0].selected = (10, 10);
+                        app.selection = Some((10, 10));
+                        app.search = false;
+                        app.show_eol = true;
+                        if flow == "fold" {
+                            app.fold_block();
+                        }
+                    }
                     "session-save" => {
                         app.docs[0].path = args
                             .iter()
@@ -2142,6 +2246,48 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod app_tests {
     use super::*;
+    #[test]
+    fn folding_keeps_hidden_cursor_format_and_content_and_rejects_stale_results() {
+        let mut a = app();
+        a.docs[0].content = Content {
+            text: "中{\n 中文🙂\n 尾\n}".into(),
+            bom: true,
+            newline: Newline::Crlf,
+        };
+        a.docs[0].saved = a.docs[0].content.clone();
+        a.docs[0].language = Some(syntax::Language::Rust);
+        a.docs[0].cursor = 5;
+        a.docs[0].selected = (4, 6);
+        let before = a.docs[0].content.clone();
+        let bytes = core::encode(&before).unwrap();
+        a.fold_block();
+        wait_idle(&mut a);
+        assert_eq!(a.docs[0].folds.hidden.len(), 1);
+        assert_eq!(a.docs[0].cursor, 5);
+        assert_eq!(a.docs[0].selected, (4, 6));
+        assert!(!a.docs[0].dirty());
+        assert_eq!(core::encode(&a.docs[0].content).unwrap(), bytes);
+        a.fold_block();
+        wait_idle(&mut a);
+        assert!(a.docs[0].folds.hidden.is_empty());
+        a.fold_block();
+        wait_idle(&mut a);
+        a.unfold();
+        assert_eq!(a.selection, Some((4, 6)));
+        assert_eq!(a.docs[0].content, before);
+        a.tx.send(ResultEvent::Fold(
+            999,
+            before.clone(),
+            Some(syntax::Language::Rust),
+            5,
+            Ok(Some(3..16)),
+        ))
+        .unwrap();
+        a.poll();
+        assert!(a.docs[0].folds.hidden.is_empty());
+        assert_eq!(a.docs[0].content, before);
+        assert!(a.message.contains("過期"));
+    }
     #[test]
     fn session_worker_restart_restores_multiple_dirty_tabs_without_writing_sources() {
         let dir = tempfile::tempdir().unwrap();

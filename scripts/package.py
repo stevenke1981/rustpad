@@ -13,7 +13,7 @@ if output.exists():
     raise SystemExit("Refusing to replace an existing package")
 with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
     archive.write(args.exe, "InkPage/InkPage.exe")
-    for name in ("README.md", "SPEC.md", "V02.md", "ALIGNMENT.md", "DIFF-0.3.md", "DIFF-0.4.md", "DIFF-0.5.md", "QA.md", "QA-0.1.md", "QA-0.2.md", "QA-0.3.md", "QA-0.4.md", "PERFORMANCE.md", "PERFORMANCE-0.3.md", "PERFORMANCE-0.4.md", "PERFORMANCE-0.5.md", "LICENSE", "THIRD_PARTY_LICENSES.md"):
+    for name in ("README.md", "SPEC.md", "V02.md", "ALIGNMENT.md", "DIFF-0.3.md", "DIFF-0.4.md", "DIFF-0.5.md", "DIFF-0.6.md", "DIFF-0.7.md", "DIFF-0.8.md", "QA-NATIVE.md", "QA.md", "QA-0.1.md", "QA-0.2.md", "QA-0.3.md", "QA-0.4.md", "PERFORMANCE.md", "PERFORMANCE-0.3.md", "PERFORMANCE-0.4.md", "PERFORMANCE-0.5.md", "PERFORMANCE-0.8.md", "LICENSE", "THIRD_PARTY_LICENSES.md"):
         archive.write(root / name, "InkPage/" + name)
     for path in sorted((root / "licenses").rglob("*")):
         if path.is_file():

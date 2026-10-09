@@ -12,9 +12,22 @@ pub fn matching(text: &str, language: Language, cursor: usize) -> Result<Option<
     } else {
         return Ok(None);
     };
+    for (open, close) in pairs(text, language)? {
+        if open == target {
+            return Ok(Some(close));
+        }
+        if close == target {
+            return Ok(Some(open));
+        }
+    }
+    Ok(None)
+}
+pub fn pairs(text: &str, language: Language) -> Result<Vec<(usize, usize)>, String> {
     let mask = crate::syntax::Engine::new().code_mask(text, language)?;
+    let chars = text.char_indices();
     let mut stack = Vec::new();
-    for (index, (byte, ch)) in chars.into_iter().enumerate() {
+    let mut pairs = Vec::new();
+    for (index, (byte, ch)) in chars.enumerate() {
         if !mask[byte] {
             continue;
         }
@@ -24,18 +37,13 @@ pub fn matching(text: &str, language: Language, cursor: usize) -> Result<Option<
             && let Some((open, opening)) = stack.pop()
         {
             if matches!((opening, ch), ('(', ')') | ('[', ']') | ('{', '}')) {
-                if open == target {
-                    return Ok(Some(index));
-                }
-                if index == target {
-                    return Ok(Some(open));
-                }
+                pairs.push((open, index));
             } else {
                 stack.clear();
             }
         }
     }
-    Ok(None)
+    Ok(pairs)
 }
 
 #[cfg(test)]
