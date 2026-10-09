@@ -2,22 +2,113 @@ use crate::{App, app_tests, i18n};
 use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, Rect, vec2};
 
 fn frame(app: &mut App, ctx: &egui::Context, mut input: egui::RawInput) -> egui::FullOutput {
-    input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, vec2(1080., 720.)));
+    input
+        .screen_rect
+        .get_or_insert(Rect::from_min_size(Pos2::ZERO, vec2(1080., 720.)));
     let mut frame = eframe::Frame::_new_kittest();
     eframe::App::raw_input_hook(app, ctx, &mut input);
     ctx.run(input, |ctx| eframe::App::update(app, ctx, &mut frame))
 }
+
+#[test]
+fn tab_keyboard_cycle_preserves_dirty_format_history_and_wraps() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.locale = i18n::Locale::English;
+    let original = app.docs[0].content.clone();
+    app.docs[0].history.record(original);
+    app.docs[0].content = crate::core::Content {
+        text: "中文🙂\n".into(),
+        bom: true,
+        newline: crate::core::Newline::Crlf,
+    };
+    let before = app.docs[0].content.clone();
+    app.new_doc();
+    app.activate(0);
+    frame(&mut app, &ctx, Default::default());
+    for (modifiers, active) in [
+        (Modifiers::CTRL, 1),
+        (Modifiers::CTRL, 0),
+        (Modifiers::CTRL | Modifiers::SHIFT, 1),
+        (Modifiers::CTRL | Modifiers::SHIFT, 0),
+    ] {
+        frame(
+            &mut app,
+            &ctx,
+            egui::RawInput {
+                modifiers,
+                events: vec![Event::Key {
+                    key: egui::Key::Tab,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                }],
+                ..Default::default()
+            },
+        );
+        assert_eq!(app.active, active, "tab cycling did not consume shortcut");
+        assert_eq!(app.docs[0].content, before);
+        assert!(app.docs[0].dirty());
+    }
+    let d = &mut app.docs[0];
+    d.history.undo(&mut d.content);
+    assert_eq!(d.content, d.saved);
+}
+
+#[test]
+fn tab_middle_close_targets_inactive_dirty_document_and_cancel_keeps_it() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.locale = i18n::Locale::English;
+    app.docs[0].content.text = "keep 中文🙂".into();
+    let dirty_id = app.docs[0].id;
+    app.new_doc();
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(&mut app, &ctx, Default::default());
+    let pos = text_center(&output, "● Untitled 1");
+    for pressed in [true, false] {
+        frame(
+            &mut app,
+            &ctx,
+            egui::RawInput {
+                events: vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Middle,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+                ..Default::default()
+            },
+        );
+    }
+    assert_eq!(app.pending_close, Some(dirty_id));
+    assert_eq!(app.active, 1);
+    assert_eq!(app.docs.len(), 2);
+    let output = frame(&mut app, &ctx, Default::default());
+    let cancel = text_center(&output, "Cancel");
+    click(&mut app, &ctx, cancel);
+    assert_eq!(app.pending_close, None);
+    assert_eq!(app.docs[0].content.text, "keep 中文🙂");
+}
 fn text_center(output: &egui::FullOutput, text: &str) -> Pos2 {
     fn find(shape: &egui::epaint::Shape, text: &str) -> Option<Pos2> {
         match shape {
-            egui::epaint::Shape::Text(shape) if shape.galley.text() == text => {
-                Some(shape.pos + shape.galley.size() / 2.)
-            }
+            egui::epaint::Shape::Text(shape) if shape.galley.text() == text => Some(
+                shape.pos
+                    + shape.galley.rows[0]
+                        .rect_without_leading_space()
+                        .center()
+                        .to_vec2(),
+            ),
             egui::epaint::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, text)),
             _ => None,
         }
     }
-    for clipped in &output.shapes {
+    for clipped in output.shapes.iter().rev() {
         if let Some(pos) = find(&clipped.shape, text) {
             return pos;
         }
@@ -97,6 +188,40 @@ fn tab_drag_pointer_release_reorders_and_escape_cancels() {
         app.docs.iter().map(|doc| doc.id).collect::<Vec<_>>(),
         [2, 1]
     );
+}
+
+#[test]
+fn window_menu_switch_and_status_double_click_keep_document_data() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.locale = i18n::Locale::English;
+    app.docs[0].content.text = "中文🙂\n".into();
+    let before = app.docs[0].content.clone();
+    app.new_doc();
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(&mut app, &ctx, Default::default());
+    let menu = text_center(&output, "Window");
+    click(&mut app, &ctx, menu);
+    let output = frame(&mut app, &ctx, Default::default());
+    let tab = text_center(&output, "● Untitled 1");
+    click(&mut app, &ctx, tab);
+    assert_eq!(app.active, 0);
+    assert_eq!(app.docs[0].content, before);
+    assert!(app.docs[0].dirty());
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(
+        &mut app,
+        &ctx,
+        egui::RawInput {
+            time: Some(ctx.input(|input| input.time) + 1.),
+            ..Default::default()
+        },
+    );
+    let position = text_center(&output, "Ln 1 : Col 1");
+    click(&mut app, &ctx, position);
+    click(&mut app, &ctx, position);
+    assert!(app.goto_open);
+    assert_eq!(app.docs[0].content, before);
 }
 
 #[test]

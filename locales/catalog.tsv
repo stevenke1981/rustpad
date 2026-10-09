@@ -245,3 +245,17 @@ grammar span 未涵蓋完整原文	grammar span 未覆盖完整原文	Grammar sp
 不支援的介面語言：{0}	不支持的界面语言：{0}	Unsupported UI language: {0}	未対応の表示言語：{0}
 請等待檔案操作完成再關閉分頁	请等待文件操作完成后再关闭标签页	Wait for the file operation before closing the tab	ファイル処理が完了してからタブを閉じてください
 另存新檔	另存为	Save as	名前を付けて保存
+尋找    Ctrl+F	查找    Ctrl+F	Find    Ctrl+F	検索    Ctrl+F
+取代    Ctrl+H	替换    Ctrl+H	Replace    Ctrl+H	置換    Ctrl+H
+視窗	窗口	Window	ウィンドウ
+下一個分頁    Ctrl+Tab	下一个标签页    Ctrl+Tab	Next tab    Ctrl+Tab	次のタブ    Ctrl+Tab
+上一個分頁    Ctrl+Shift+Tab	上一个标签页    Ctrl+Shift+Tab	Previous tab    Ctrl+Shift+Tab	前のタブ    Ctrl+Shift+Tab
+切換到此分頁	切换到此标签页	Activate this tab	このタブを表示
+未儲存；拖曳以排序分頁	未保存；拖动以排序标签页	Unsaved; drag to reorder tabs	未保存；ドラッグでタブを並べ替え
+{0} bytes · {1} 行	{0} bytes · {1} 行	{0} bytes · {1} lines	{0} bytes · {1} 行
+{0} 字元；大小包含 BOM 與磁碟換行	{0} 字符；大小包含 BOM 和磁盘换行	{0} characters; size includes BOM and on-disk line endings	{0} 文字；サイズは BOM と保存時の改行を含みます
+行 {0} : 列 {1}	行 {0} : 列 {1}	Ln {0} : Col {1}	行 {0} : 列 {1}
+雙擊跳行；行列按 Unicode scalar 計數	双击跳行；行列按 Unicode scalar 计数	Double-click to go to line; positions count Unicode scalars	ダブルクリックで行へ移動；位置は Unicode scalar 単位
+選取 {0} 字／{1} 行	选中 {0} 字／{1} 行	Sel {0} chars / {1} lines	選択 {0} 文字／{1} 行
+選取按 Unicode scalar 計數；末端換行不多算下一空白行	选中按 Unicode scalar 计数；末尾换行不多算下一个空行	Selection counts Unicode scalars; a final newline does not add the next blank line	選択は Unicode scalar 単位；末尾の改行では次の空行を数えません
+末尾換行：{0}	末尾换行：{0}	Final newline: {0}	末尾の改行：{0}

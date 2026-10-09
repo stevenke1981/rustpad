@@ -168,6 +168,12 @@ pub struct History {
     redo: Vec<Content>,
 }
 impl History {
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
     pub fn record(&mut self, before: Content) {
         self.redo.clear();
         self.undo.push(before);

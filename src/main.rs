@@ -4,6 +4,7 @@ mod bookmarks;
 mod branding;
 mod core;
 mod dragdrop;
+mod editor_chrome;
 mod filesearch;
 mod fold;
 #[cfg(test)]
@@ -151,6 +152,7 @@ struct App {
     match_range: Option<(u64, (usize, usize))>,
     match_signature: Option<(String, actions::SearchOptions)>,
     capture: Option<PathBuf>,
+    qa_hover: Option<egui::Pos2>,
     capture_schedule: perf::CaptureSchedule,
     show_spaces: bool,
     show_eol: bool,
@@ -578,6 +580,7 @@ impl App {
             match_range: None,
             match_signature: None,
             capture: None,
+            qa_hover: None,
             capture_schedule: Default::default(),
             show_spaces: false,
             show_eol: false,
@@ -1128,7 +1131,11 @@ impl App {
     }
 }
 impl eframe::App for App {
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        if let Some(position) = self.qa_hover {
+            input.events.push(egui::Event::PointerMoved(position));
+            ctx.style_mut(|style| style.interaction.tooltip_delay = 0.);
+        }
         #[cfg(windows)]
         if let Some(bridge) = &self.native_drop {
             let files = bridge.take_files();
@@ -1248,6 +1255,8 @@ impl eframe::App for App {
         let mut bracket = false;
         let mut folding = false;
         let mut unfolding = false;
+        let mut tab_direction = 0;
+        let mut window_activation = None;
         let editor_focused = ctx.memory(|memory| {
             memory.has_focus(egui::Id::new(("editor", self.docs[self.active].id)))
         });
@@ -1255,6 +1264,13 @@ impl eframe::App for App {
             self.unfold();
         }
         ctx.input_mut(|i| {
+            if !self.docs[self.active].composing && self.pending_close.is_none() && !self.exit {
+                if i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::Tab) {
+                    tab_direction = -1;
+                } else if i.consume_key(Modifiers::CTRL, Key::Tab) {
+                    tab_direction = 1;
+                }
+            }
             new = i.consume_key(Modifiers::CTRL, Key::N);
             open = i.consume_key(Modifiers::CTRL, Key::O);
             save_as = i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::S);
@@ -1342,6 +1358,19 @@ impl eframe::App for App {
             }
         });
         egui::TopBottomPanel::top("chrome").show(ctx, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(3., 2.);
+            if tab_direction != 0 && self.docs.len() > 1 {
+                let index = if tab_direction < 0 {
+                    (self.active + self.docs.len() - 1) % self.docs.len()
+                } else {
+                    (self.active + 1) % self.docs.len()
+                };
+                self.activate(index);
+                self.selection = Some(self.docs[index].selected);
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(egui::Id::new(("editor", self.docs[index].id)))
+                });
+            }
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(locale.text("檔案"), |ui| {
                     new |= ui.button(locale.text("新建    Ctrl+N")).clicked();
@@ -1353,6 +1382,19 @@ impl eframe::App for App {
                     close |= ui.button(locale.text("關閉分頁    Ctrl+W")).clicked();
                 });
                 ui.menu_button(locale.text("編輯"), |ui| {
+                    undo |= ui
+                        .add_enabled(
+                            self.docs[self.active].history.can_undo(),
+                            egui::Button::new(locale.text("復原    Ctrl+Z")),
+                        )
+                        .clicked();
+                    redo |= ui
+                        .add_enabled(
+                            self.docs[self.active].history.can_redo(),
+                            egui::Button::new(locale.text("重做    Ctrl+Y")),
+                        )
+                        .clicked();
+                    ui.separator();
                     folding |= ui
                         .button(locale.text("摺疊／展開目前區塊    Ctrl+Alt+F"))
                         .clicked();
@@ -1401,8 +1443,6 @@ impl eframe::App for App {
                         edit_action = Some(actions::Edit::Lowercase);
                     }
                     ui.separator();
-                    undo |= ui.button(locale.text("復原    Ctrl+Z")).clicked();
-                    redo |= ui.button(locale.text("重做    Ctrl+Y")).clicked();
                 });
                 ui.menu_button(locale.text("搜尋"), |ui| {
                     if ui.button(locale.text("切換行書籤    Ctrl+F2")).clicked() {
@@ -1545,19 +1585,133 @@ impl eframe::App for App {
                         );
                     }
                 });
+                ui.menu_button(locale.text("視窗"), |ui| {
+                    if ui.button(locale.text("下一個分頁    Ctrl+Tab")).clicked() {
+                        window_activation = Some((self.active + 1) % self.docs.len());
+                        ui.close();
+                    }
+                    if ui
+                        .button(locale.text("上一個分頁    Ctrl+Shift+Tab"))
+                        .clicked()
+                    {
+                        window_activation =
+                            Some((self.active + self.docs.len() - 1) % self.docs.len());
+                        ui.close();
+                    }
+                    ui.separator();
+                    for (index, doc) in self.docs.iter().enumerate() {
+                        if ui
+                            .selectable_label(index == self.active, doc.title(locale))
+                            .on_hover_text(doc.path.as_ref().map_or_else(
+                                || doc.title(locale),
+                                |path| path.display().to_string(),
+                            ))
+                            .clicked()
+                        {
+                            window_activation = Some(index);
+                            ui.close();
+                        }
+                    }
+                });
                 if ui.button(locale.text("墨頁 InkPage")).clicked() {
                     self.about_open = true;
                 }
             });
+            if let Some(index) = window_activation {
+                self.activate(index);
+                self.selection = Some(self.docs[index].selected);
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(egui::Id::new(("editor", self.docs[index].id)))
+                });
+            }
             ui.horizontal(|ui| {
-                new |= ui.small_button(locale.text("＋ 新建")).clicked();
-                open |= ui.small_button(locale.text("開啟")).clicked();
-                save |= ui.small_button(locale.text("儲存")).clicked();
+                use editor_chrome::{Icon, tool};
+                new |= tool(ui, Icon::New, locale.text("新建    Ctrl+N"), true, false).clicked();
+                open |= tool(
+                    ui,
+                    Icon::Open,
+                    locale.text("開啟…    Ctrl+O"),
+                    !self.busy,
+                    false,
+                )
+                .clicked();
+                save |= tool(
+                    ui,
+                    Icon::Save,
+                    locale.text("儲存    Ctrl+S"),
+                    !self.busy
+                        && (self.docs[self.active].dirty()
+                            || self.docs[self.active].path.is_none()),
+                    false,
+                )
+                .clicked();
+                save_as |= tool(
+                    ui,
+                    Icon::SaveAs,
+                    locale.text("另存新檔…    Ctrl+Shift+S"),
+                    !self.busy,
+                    false,
+                )
+                .clicked();
+                close |= tool(
+                    ui,
+                    Icon::Close,
+                    locale.text("關閉分頁    Ctrl+W"),
+                    !self.busy,
+                    false,
+                )
+                .clicked();
                 ui.separator();
-                undo |= ui.small_button(locale.text("復原")).clicked();
-                redo |= ui.small_button(locale.text("重做")).clicked();
-                if ui.small_button(locale.text("搜尋／取代")).clicked() {
+                undo |= tool(
+                    ui,
+                    Icon::Undo,
+                    locale.text("復原    Ctrl+Z"),
+                    self.docs[self.active].history.can_undo(),
+                    false,
+                )
+                .clicked();
+                redo |= tool(
+                    ui,
+                    Icon::Redo,
+                    locale.text("重做    Ctrl+Y"),
+                    self.docs[self.active].history.can_redo(),
+                    false,
+                )
+                .clicked();
+                ui.separator();
+                if tool(
+                    ui,
+                    Icon::Find,
+                    locale.text("尋找    Ctrl+F"),
+                    true,
+                    self.search,
+                )
+                .clicked()
+                {
                     self.search = !self.search;
+                }
+                if tool(
+                    ui,
+                    Icon::Replace,
+                    locale.text("取代    Ctrl+H"),
+                    true,
+                    false,
+                )
+                .clicked()
+                {
+                    self.search = true;
+                }
+                if tool(
+                    ui,
+                    Icon::GoLine,
+                    locale.text("跳至行…    Ctrl+G"),
+                    true,
+                    false,
+                )
+                .clicked()
+                {
+                    self.goto_open = true;
+                    goto_requested = true;
                 }
                 if self.busy {
                     ui.spinner();
@@ -1571,15 +1725,75 @@ impl eframe::App for App {
                         let mut closing = None;
                         let mut activating = None;
                         let mut moving = None;
+                        let active_key = egui::Id::new("tabs-active-document");
+                        let active_id = self.docs[self.active].id;
+                        let active_changed = ctx.data_mut(|data| {
+                            let old = data.get_temp::<u64>(active_key);
+                            data.insert_temp(active_key, active_id);
+                            old != Some(active_id)
+                        });
                         for (index, d) in self.docs.iter().enumerate() {
                             ui.push_id(("tab", d.id), |ui| {
+                                let title = d.title(locale);
+                                let font = egui::TextStyle::Button.resolve(ui.style());
+                                let width = ui
+                                    .fonts_mut(|fonts| {
+                                        fonts
+                                            .layout_no_wrap(
+                                                title.clone(),
+                                                font,
+                                                ui.visuals().text_color(),
+                                            )
+                                            .size()
+                                            .x
+                                            + 12.
+                                    })
+                                    .clamp(56., 180.);
                                 let response = ui
-                                    .add(
-                                        egui::Button::new(d.title(locale))
+                                    .add_sized(
+                                        egui::vec2(width, 24.),
+                                        egui::Button::new(title)
+                                            .truncate()
                                             .selected(index == self.active)
                                             .sense(egui::Sense::click_and_drag()),
                                     )
-                                    .on_hover_text(locale.text("拖曳以排序分頁"));
+                                    .on_hover_text(format!(
+                                        "{}\n{}",
+                                        d.path.as_ref().map_or_else(
+                                            || d.title(locale),
+                                            |path| path.display().to_string()
+                                        ),
+                                        locale.text(if d.dirty() {
+                                            "未儲存；拖曳以排序分頁"
+                                        } else {
+                                            "拖曳以排序分頁"
+                                        })
+                                    ));
+                                if index == self.active {
+                                    ui.painter().line_segment(
+                                        [response.rect.left_bottom(), response.rect.right_bottom()],
+                                        egui::Stroke::new(
+                                            2_f32,
+                                            ui.visuals().selection.stroke.color,
+                                        ),
+                                    );
+                                    if active_changed {
+                                        response.scroll_to_me(Some(egui::Align::Center));
+                                    }
+                                }
+                                if response.clicked_by(egui::PointerButton::Middle) {
+                                    closing = Some(d.id);
+                                }
+                                response.context_menu(|ui| {
+                                    if ui.button(locale.text("切換到此分頁")).clicked() {
+                                        activating = Some(index);
+                                        ui.close();
+                                    }
+                                    if ui.button(locale.text("關閉分頁    Ctrl+W")).clicked() {
+                                        closing = Some(d.id);
+                                        ui.close();
+                                    }
+                                });
                                 response.dnd_set_drag_payload(dragdrop::TabPayload(d.id));
                                 if response.clicked() {
                                     activating = Some(index);
@@ -1813,40 +2027,87 @@ impl eframe::App for App {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             let d = &self.docs[self.active];
             let language = syntax::resolve(d.path.as_deref(), &d.content.text, d.language);
-            let prefix: String = d.content.text.chars().take(d.cursor).collect();
-            let line = prefix.matches('\n').count() + 1;
-            let col = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
-            ui.horizontal_wrapped(|ui| {
-                ui.label(locale.message(&self.message))
-                    .on_hover_text(locale.text("可拖入多個檔案；拖曳分頁可調整順序"));
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    locale.format(
-                        "{0}{1} | {2} | {3} | Tab:{4}{5} | 末尾:{6} | 行 {7}:列 {8} | {9} 字",
-                        &[
-                            locale.text(language.label()),
-                            locale.text(self.syntax.status(
-                                d.id,
-                                &d.content.text,
-                                language,
-                                self.dark,
-                            )),
-                            if d.content.bom { "UTF-8 BOM" } else { "UTF-8" },
-                            d.content.newline.label(),
-                            &self.tab_width.to_string(),
-                            locale.text(if self.insert_spaces { "空格" } else { "Tab" }),
-                            locale.text(if d.content.text.ends_with('\n') {
-                                "有"
-                            } else {
-                                "無"
-                            }),
-                            &line.to_string(),
-                            &col.to_string(),
-                            &d.content.text.chars().count().to_string(),
-                        ],
-                    ),
+            let stats = editor_chrome::Stats::new(&d.content, d.cursor, d.selected);
+            if self.message != "就緒 · UTF-8 編輯器 · 2 MiB 上限" {
+                ui.add(
+                    egui::Label::new(egui::RichText::new(locale.message(&self.message)).size(12.))
+                        .wrap(),
                 );
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.;
+                ui.label(egui::RichText::new(locale.text(language.label())).size(12.))
+                    .on_hover_text(locale.text(self.syntax.status(
+                        d.id,
+                        &d.content.text,
+                        language,
+                        self.dark,
+                    )));
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(locale.format(
+                        "{0} bytes · {1} 行",
+                        &[&stats.bytes.to_string(), &stats.lines.to_string()],
+                    ))
+                    .size(12.),
+                )
+                .on_hover_text(locale.format(
+                    "{0} 字元；大小包含 BOM 與磁碟換行",
+                    &[&stats.chars.to_string()],
+                ));
+                ui.separator();
+                let position_response = ui
+                    .add(
+                        egui::Label::new(
+                            egui::RichText::new(locale.format(
+                                "行 {0} : 列 {1}",
+                                &[&stats.line.to_string(), &stats.column.to_string()],
+                            ))
+                            .size(12.),
+                        )
+                        .sense(egui::Sense::click())
+                        .selectable(false),
+                    )
+                    .on_hover_text(locale.text("雙擊跳行；行列按 Unicode scalar 計數"));
+                if position_response.double_clicked() {
+                    self.goto_open = true;
+                    self.goto_input = stats.line.to_string();
+                }
+                ui.label(
+                    egui::RichText::new(locale.format(
+                        "選取 {0} 字／{1} 行",
+                        &[
+                            &stats.selected_chars.to_string(),
+                            &stats.selected_lines.to_string(),
+                        ],
+                    ))
+                    .size(12.),
+                )
+                .on_hover_text(locale.text("選取按 Unicode scalar 計數；末端換行不多算下一空白行"));
+                ui.separator();
+                ui.label(egui::RichText::new(d.content.newline.label()).size(12.));
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(if d.content.bom { "UTF-8 BOM" } else { "UTF-8" })
+                        .size(12.),
+                );
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{}:{}",
+                        locale.text(if self.insert_spaces { "空格" } else { "Tab" }),
+                        self.tab_width
+                    ))
+                    .size(12.),
+                )
+                .on_hover_text(locale.format(
+                    "末尾換行：{0}",
+                    &[locale.text(if d.content.text.ends_with('\n') {
+                        "有"
+                    } else {
+                        "無"
+                    })],
+                ));
             });
         });
         egui::CentralPanel::default()
@@ -1900,7 +2161,11 @@ impl eframe::App for App {
                                 egui::Label::new(
                                     egui::RichText::new(nums.trim_end())
                                         .font(FontId::monospace(15.))
-                                        .color(Color32::GRAY),
+                                        .color(if self.dark {
+                                            Color32::from_rgb(173, 182, 194)
+                                        } else {
+                                            Color32::from_rgb(94, 102, 115)
+                                        }),
                                 )
                                 .selectable(false),
                             );
@@ -2201,7 +2466,11 @@ fn paint_whitespace(
 fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1080., 720.])
+            .with_inner_size(if std::env::args().any(|arg| arg == "--narrow") {
+                [760., 420.]
+            } else {
+                [1080., 720.]
+            })
             .with_min_inner_size([760., 420.])
             // Windows Explorer uses WM_DROPFILES with our Shell receiver.
             // Leave winit's OLE receiver disabled so it cannot intercept the drop.
@@ -2241,6 +2510,9 @@ fn main() -> eframe::Result {
                 && let Some(path) = args.get(i + 1)
             {
                 app.capture = Some(PathBuf::from(path));
+                if args.iter().any(|arg| arg == "--qa-tooltip") {
+                    app.qa_hover = Some(egui::pos2(16., 36.));
+                }
                 app.docs[0].path = Some(PathBuf::from("welcome.rs"));
                 app.docs[0].content.text="// 墨頁 InkPage — 繁體中文與 Unicode 測試\nfn main() {\n    let greeting = \"你好，世界 🙂\";\n    println!(\"{greeting}\");\n}\n\n// Ctrl+F 搜尋 · Ctrl+S 儲存\n".into();
                 app.docs[0].saved = app.docs[0].content.clone();
@@ -2299,6 +2571,32 @@ fn main() -> eframe::Result {
             {
                 app.docs[0].path = Some(PathBuf::from("qa-demo.txt"));
                 match flow.as_str() {
+                    "chrome" => {
+                        app.docs[0].path = Some(PathBuf::from("editor_demo_墨頁_Notepad_style.rs"));
+                        app.docs[0].content.bom = true;
+                        app.docs[0].content.newline = Newline::Crlf;
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.docs[0]
+                            .content
+                            .text
+                            .push_str("// 未儲存變更；原文含中文🙂\n");
+                        app.docs[1].content.text = "筆記分頁 · 尚未儲存".into();
+                        for index in 1..=6 {
+                            app.new_doc();
+                            let doc = &mut app.docs[app.active];
+                            doc.path = Some(PathBuf::from(format!(
+                                "notes_{index}_墨頁長檔名_for_tab_navigation.txt"
+                            )));
+                            doc.content.text = format!("第 {index} 個合成文件\n");
+                            doc.saved = doc.content.clone();
+                        }
+                        app.activate(0);
+                        let end = actions::goto_line(&app.docs[0].content.text, 4).unwrap();
+                        app.docs[0].selected = (0, end);
+                        app.docs[0].cursor = end;
+                        app.selection = Some((0, end));
+                        app.search = false;
+                    }
                     "bookmarks" => {
                         app.docs[0].content.text = (1..=600)
                             .map(|n| format!("第 {n} 行 — 中文🙂 書籤導航\n"))
@@ -3002,6 +3300,7 @@ mod app_tests {
             match_range: None,
             match_signature: None,
             capture: None,
+            qa_hover: None,
             capture_schedule: Default::default(),
             show_spaces: false,
             show_eol: false,
