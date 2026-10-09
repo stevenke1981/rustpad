@@ -132,6 +132,7 @@ fn atomic_write(
     temp.persist(path).map_err(|e| e.error)?;
     Ok(())
 }
+#[cfg(test)]
 pub fn find(text: &str, query: &str, from_char: usize) -> Option<(usize, usize)> {
     if query.is_empty() {
         return None;

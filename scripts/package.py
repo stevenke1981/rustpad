@@ -13,7 +13,7 @@ if output.exists():
     raise SystemExit("Refusing to replace an existing package")
 with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
     archive.write(args.exe, "RustPad/rustpad.exe")
-    for name in ("README.md", "SPEC.md", "V02.md", "QA.md", "QA-0.1.md", "PERFORMANCE.md", "LICENSE", "THIRD_PARTY_LICENSES.md"):
+    for name in ("README.md", "SPEC.md", "V02.md", "ALIGNMENT.md", "DIFF-0.3.md", "QA.md", "QA-0.1.md", "QA-0.2.md", "PERFORMANCE.md", "PERFORMANCE-0.3.md", "LICENSE", "THIRD_PARTY_LICENSES.md"):
         archive.write(root / name, "RustPad/" + name)
     for path in sorted((root / "licenses").rglob("*")):
         if path.is_file():

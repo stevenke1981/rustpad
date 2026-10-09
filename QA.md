@@ -1,31 +1,42 @@
-# RustPad 0.2 驗證記錄
+# RustPad 0.3 驗證記錄
 
-2026-10-09，本機 Windows NT 10.0.22631，x86_64 MSVC，Rust 1.99.0；5900X 為使用者提供的主機資訊，CIM 讀取遭拒，未獨立確認 CPU。cargo 全程 -j1。
+2026-10-09（台灣），Windows NT 10.0.22631 / x86_64 MSVC / Rust 1.99.0。主機 5900X 為使用者提供，CIM 未獨立核實。編譯 -j1；不安裝新依賴，不改其他專案或重啟客戶端。
 
-## 自動測試
+## 自動驗收與 RED
 
-`cargo fmt --check`、`cargo clippy --locked -j1 --all-targets -- -D warnings`、`cargo test --locked -j1` 通過，27 passed / 0 failed。涵蓋：
+fmt、clippy `--locked -j1 --all-targets -- -D warnings` 與 test 通過：**42 tests / 0 failed**。沿用 0.2 的 Unicode/BOM/EOL、原子失敗保存舊檔、dirty 取消/關閉、undo、語法跨行與 byte ranges 等 27 項，加 15 項回歸。
 
-- 嚴格 UTF-8、BOM、LF/CRLF/CR、無換行檔 byte-for-byte 往返，拒絕非法編碼、NUL、混合 EOL、超限。
-- Unicode 搜尋/替換邊界、跨分頁禁止、選取與全部替換、單次 undo；未存关闭取消/捨棄；非同步儲存保留新修改 dirty。
-- 注入暫存檔部分寫入失敗，舊檔 bytes 不變；非法/超限輸出不毀檔；外部變更比對。
-- 各種語法存在且 sample 使用多色；跨行 Rust 註解、巢狀註解、Python multiline string；修改跨行關閉符後狀態改變；Unicode span byte boundaries、LayoutJob bytes 恆等；>256 KiB 純文字退回。
-- 副檔名/shebang/手動選擇，切換語言、主題、Tab width、字型行高/DPI/空格尺寸使快取失效；另存新副檔名改變語言但不制造 dirty。
-- Tab stops 往返、選取前綴欄位、CJK/emoji、組合字、Unicode 空白、尾端清理/最後換行、undo；Tab galley 字元索引與行高不變。
-- 搜尋欄焦點下 Ctrl+Z 留給該欄位，編輯區歷史不誤消耗。
+RED 記錄：
 
-## 真實 Windows 繪製與限制
+1. 搜尋條件/前後導航/選取取代/跳行四項先在未實作 stub 上失敗，最小實作後轉綠。
+2. 行複製/刪除與 Unicode 大小寫兩項先失敗，再實作；含 EOF 空行、ß→SS、BOM/CRLF、無選取、20k 行上限不部分修改。
+3. 改 query 或搜尋條件後沿用舊命中會把「Rust」改成錯誤 replacement：先重現失敗，再加入搜尋 signature 保護。
+4. 游標位於重疊命中內，向前/向後錯過最近匹配：先重現失敗，再使用游標範圍的正向 find / 反向 rfind；計數/批次取代仍維持不重疊。
+5. 希臘字母 sigma 的字串/單字元小寫規則不同，來源與 query 原本不對稱，連相同 `ΟΣ` 都找不到：先重現，再統一兩側的 per-scalar lowercase 映射；不承諾 full case folding。
+6. 重疊範圍已找到但單項取代沿用全文件不重疊集合，導致無法取代：先重現，再讓單項取代驗證當前游標命中，批次計數/取代仍不重疊。
 
-`qa/syntax-rust-light.png`、`qa/syntax-python-dark.png`、`qa/syntax-json-light.png` 由真正 Windows eframe/glow OpenGL framebuffer 擷取，等待背景著色完成；不是 HTML、設計稿或 headless mock。以真實像素檢查繁中與 emoji、三種語法配色、行號、工具列/搜尋/分頁/狀態列；不包含 OS 標題列。
+另外驗證分頁內容隔離、新建非 dirty、選取範圍 count/replace 共用條件、一次 undo/redo、非法跳行不 dirty。背景工作測試使用 18,000 行（>256 KiB）實際 thread/channel：count、批次取代、undo，以及工作期間修改內容、改 query、切分頁時結果不得修改新狀態。這兩項背景回歸在實作後加入，未冒稱先行 RED。
+
+## 真實 renderer
+
+最後 release 以原生 Windows eframe/glow screenshot event 輸出，逐張查看：
+
+- `qa/v03-search.png`：暗色搜尋，忽略大小寫/全字/循環條件、上一個選取、文件 count=4。
+- `qa/v03-navigation.png`：500 行文件跳至第 350 行，目標在視窗內，gutter 與內容行號一致，內容不 dirty。
+- `qa/v03-goto.png`：繁中行號對話框與範圍提示。
+- `qa/v03-close.png`：dirty 分頁與儲存/捨棄/取消確認。
+- `qa/v03-edits.png`：Unicode 大寫展開及複製後 STRASSE，dirty、選取、CRLF/EOF 覆蓋標記。
 
 ```powershell
-.\target\release\rustpad.exe --screenshot qa/syntax-rust-light.png --sample rust --whitespace
-.\target\release\rustpad.exe --screenshot qa/syntax-python-dark.png --sample python --dark
-.\target\release\rustpad.exe --screenshot qa/syntax-json-light.png --sample json
+.\target\release\rustpad.exe --screenshot qa/v03-search.png --qa-flow search --dark
+.\target\release\rustpad.exe --screenshot qa/v03-navigation.png --qa-flow navigation
+.\target\release\rustpad.exe --screenshot qa/v03-goto.png --qa-flow goto
+.\target\release\rustpad.exe --screenshot qa/v03-close.png --qa-flow close
+.\target\release\rustpad.exe --screenshot qa/v03-edits.png --qa-flow edits
 ```
 
-**NOT EXECUTED：** 真正 OS 鍵鼠互動、檔案對話框、剪貼簿、完整 IME、無障礙與 Linux 桌面 GUI。可用工具只有瀏覽器控制，原生輸入工具未提供；不能用單元測試或截圖宣稱這些通過。egui 合成鍵事件只證明 widget/資料流程，不是原生 IME。CJK fallback 字型可能不是嚴格等寬，Tab stops 邏輯顯示欄位與實際 pixel 仍有字型差異。
+這些是 app 自己的 QA fixture 經真正 renderer 輸出的 pixels，不是 mock；**沒有使用 OS 原生鍵鼠操作**。矩陣完成等級明確限定資料/egui widget 與 renderer 驗收，不能推出真人端到端通過。
 
-Windows/Linux CI 執行 fmt/clippy/test/build；CI 無 Linux GUI/IME 視覺實測。執行狀態與 URL 於交付時另列。Linux binary 尚未散布，Linux 專屬依賴授權待 packaging audit。
+**NOT EXECUTED：** 原生鍵鼠、檔案對話框/剪貼簿、完整 IME、Linux 桌面 GUI、無障礙。對話框/剪貼簿仍在矩陣列部分或未驗證。Windows/Linux CI 的 fmt/clippy/test/build 終態另附交付 URL，不等同 Linux GUI。Linux binary 未散布，平台專屬授權 packaging audit 待做。
 
-效能數據、可重現命令與取捨見 [PERFORMANCE.md](PERFORMANCE.md)。歷史 0.1 驗證见 [QA-0.1.md](QA-0.1.md)。
+測量見 [PERFORMANCE-0.3.md](PERFORMANCE-0.3.md)，用例/差異見 [DIFF-0.3.md](DIFF-0.3.md)。歷史驗收：[0.2](QA-0.2.md)、[0.1](QA-0.1.md)。
