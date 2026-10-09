@@ -1,36 +1,31 @@
-# 0.1 驗證記錄
+# RustPad 0.2 驗證記錄
 
-2026-10-09；本機 Windows NT 10.0.22631（Windows 11），x86_64 MSVC，Rust 1.99.0。5900X 為委派環境提供的型號；CIM 讀取被拒，實際可讀 processor identifier 為 AMD64 Family 25 Model 33 Stepping 2。cargo 全程 -j1，未做大型 benchmark。
+2026-10-09，本機 Windows NT 10.0.22631，x86_64 MSVC，Rust 1.99.0；5900X 為使用者提供的主機資訊，CIM 讀取遭拒，未獨立確認 CPU。cargo 全程 -j1。
 
-## 自動驗證
+## 自動測試
 
-19 個單元／應用狀態測試：UTF-8／BOM／LF／CRLF／CR 空檔與 Unicode byte-for-byte 往返；非法編碼、NUL、混合換行與大小限制；Unicode 搜尋與替換邊界、空 query、循環搜尋；取消 dirty 分頁關閉、放棄後建立新分頁；獨立 undo/redo、全部取代單次復原；搜尋結果不得跨分頁替換；儲存途中修改保持 dirty；失敗／取消儲存保持 dirty；注入暫存部分寫入失敗後原檔仍為原 bytes；不合法輸出拒絕且不毀檔；無換行空檔／單行檔以 byte 比對避免 CRLF 格式造成外部變更誤判。
+`cargo fmt --check`、`cargo clippy --locked -j1 --all-targets -- -D warnings`、`cargo test --locked -j1` 通過，27 passed / 0 failed。涵蓋：
 
-`cargo test --locked -j1`：19 passed，0 failed。`cargo clippy --locked -j1 --all-targets -- -D warnings`：通過。`cargo fmt --check`：通過。Windows debug build 已成功。
+- 嚴格 UTF-8、BOM、LF/CRLF/CR、無換行檔 byte-for-byte 往返，拒絕非法編碼、NUL、混合 EOL、超限。
+- Unicode 搜尋/替換邊界、跨分頁禁止、選取與全部替換、單次 undo；未存关闭取消/捨棄；非同步儲存保留新修改 dirty。
+- 注入暫存檔部分寫入失敗，舊檔 bytes 不變；非法/超限輸出不毀檔；外部變更比對。
+- 各種語法存在且 sample 使用多色；跨行 Rust 註解、巢狀註解、Python multiline string；修改跨行關閉符後狀態改變；Unicode span byte boundaries、LayoutJob bytes 恆等；>256 KiB 純文字退回。
+- 副檔名/shebang/手動選擇，切換語言、主題、Tab width、字型行高/DPI/空格尺寸使快取失效；另存新副檔名改變語言但不制造 dirty。
+- Tab stops 往返、選取前綴欄位、CJK/emoji、組合字、Unicode 空白、尾端清理/最後換行、undo；Tab galley 字元索引與行高不變。
+- 搜尋欄焦點下 Ctrl+Z 留給該欄位，編輯區歷史不誤消耗。
 
-Windows release build 通過，首次建置 2 分 53 秒（依賴已有下載、release 編譯快取為空、-j1、thin LTO；包含編譯，非啟動時間）。release exe 約 5.06 MiB（5,304,832 bytes；修訂後以實際檔案為準）。未做啟動時間／峰值記憶體／大型檔案效能 benchmark。
+## 真實 Windows 繪製與限制
 
-## 真實 GUI
-
-`qa/light.png`、`qa/dark.png` 為本機 Windows 原生 eframe/glow OpenGL framebuffer 截圖，非設計稿、HTML 或 headless mock。用內建 `--screenshot` 測試模式載入自有 sample，再透過 egui ViewportCommand::Screenshot 取得真正繪製的像素。人工視覺檢查：緊湊選單／工具列／多分頁／搜尋列，繁中字型、基礎高亮、行號與狀態列。截圖不包含 OS 標題列。
+`qa/syntax-rust-light.png`、`qa/syntax-python-dark.png`、`qa/syntax-json-light.png` 由真正 Windows eframe/glow OpenGL framebuffer 擷取，等待背景著色完成；不是 HTML、設計稿或 headless mock。以真實像素檢查繁中與 emoji、三種語法配色、行號、工具列/搜尋/分頁/狀態列；不包含 OS 標題列。
 
 ```powershell
-.\target\release\rustpad.exe --screenshot qa/light.png
-.\target\release\rustpad.exe --screenshot qa/dark.png --dark
+.\target\release\rustpad.exe --screenshot qa/syntax-rust-light.png --sample rust --whitespace
+.\target\release\rustpad.exe --screenshot qa/syntax-python-dark.png --sample python --dark
+.\target\release\rustpad.exe --screenshot qa/syntax-json-light.png --sample json
 ```
 
-目前無可呼叫的 Windows 原生輸入控制工具：computer-use skill 要求 node_repl + @oai/sky，但此環境未提供 node_repl；cua 僅允許瀏覽器。未注入 OS 鍵盤／滑鼠，未宣稱完整 GUI 輸入、剪貼簿、檔案對話框或注音／拼音 IME 已通過。繁中渲染與 Unicode 資料測試不等於 IME 測試。
+**NOT EXECUTED：** 真正 OS 鍵鼠互動、檔案對話框、剪貼簿、完整 IME、無障礙與 Linux 桌面 GUI。可用工具只有瀏覽器控制，原生輸入工具未提供；不能用單元測試或截圖宣稱這些通過。egui 合成鍵事件只證明 widget/資料流程，不是原生 IME。CJK fallback 字型可能不是嚴格等寬，Tab stops 邏輯顯示欄位與實際 pixel 仍有字型差異。
 
-## 未驗證與限制
+Windows/Linux CI 執行 fmt/clippy/test/build；CI 無 Linux GUI/IME 視覺實測。執行狀態與 URL 於交付時另列。Linux binary 尚未散布，Linux 專屬依賴授權待 packaging audit。
 
-Linux 未在本機或 Linux 桌面執行 GUI。首版提交 3099da841c2de5fe9788fc22f52ea1a5dff6026d 的 GitHub-hosted Ubuntu/Windows CI 已通過 fmt、clippy、test、build（run 37876816336）；這不等於 Linux 原生 GUI／IME 已驗證。新增空白處理版本 CI 另外追蹤。Linux 特定第三方授權仍需在正式封裝時補稽核。Windows native dialog、選取後中文組字／取消、跨分頁組字、IME undo、滑鼠與剪貼簿是後續人工 QA 清單。
-
-字型從系統載入；Emoji 以系統字型 fallback 嘗試顯示，未保證跨平台所有 glyph／彩色 emoji。行列以 Unicode scalar 計算。語法高亮只辨認部分關鍵字，256 KiB 以上自動純文字。檔案最多 2 MiB／20,000 行／單行 16 KiB；排版、搜尋、編輯仍在 UI 執行，未宣稱極致大檔效能。儲存會比對磁碟內容但「檢查與替換之間」仍有外部寫入 race；不提供跨程序檔案鎖。原子替換不保留全部 ACL／硬連結關係，也未保證電源故障下目錄持久性。
-
-視覺 QA 曾找到 Windows 系統主題覆寫初始深色設定的問題；修正為 update 時套用使用者主題。Emoji 符號缺字問題透過系統 Segoe UI Emoji fallback 修正，本機呈現為單色。兩項均以重新編譯後真實截圖複查。
-
-新增 7 個回歸測試：legacy CR／平台 EOL 往返與格式 undo；ASCII 行尾清理保留 Unicode 空白／BOM／空白行；選取範圍 Tab↔空格及 undo；檔尾換行操作不批量刪空行；轉換超限無部分變更；Tab 字寬 2／8 的 galley 原文與游標 index、行高不變；空白 UI action dirty 與 undo。舊 `qa/light.png`／`dark.png` 不代表新功能；新功能另存 `qa/whitespace-light.png`／`whitespace-dark.png`。
-
-使用者提供的兩張 Library 參考圖：本機官方傳輸流程回 HTTP 403，Library read 僅給描述／asset pointer，未取得可檢視像素；未臆測其具體選單。功能依使用者明確文字需求實作。
-
-新增空白版本 Windows release exe：5,444,608 bytes（約 5.19 MiB）。whitespace-light.png／whitespace-dark.png 已在本機原生 OpenGL 實際輸出並檢視，均 exit 0；一般空格圓點、Tab 箭頭、CRLF 和 EOF 標記、末尾無換行狀態可見，行號與文字仍對齊。此為渲染驗證，原生鍵鼠／IME 仍 NOT EXECUTED。
+效能數據、可重現命令與取捨見 [PERFORMANCE.md](PERFORMANCE.md)。歷史 0.1 驗證见 [QA-0.1.md](QA-0.1.md)。

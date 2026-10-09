@@ -1,39 +1,17 @@
-# RustPad 0.1 規格／架構
+# RustPad 0.2 規格與架構
 
-暫名 RustPad，原創 Rust 桌面文字編輯器。參考 Notepad++ 的緊湊資訊布局；不含其程式、標誌、圖示或素材。Notepad++ 官方 LICENSE 目前為 GPLv3；本專案原創部分 MIT。
+完整功能對照與限制：[V02.md](V02.md)。
 
-## 選型
+選用 eframe/egui 0.33 + glow 原生 OpenGL：同碼 Windows/Linux，MIT/Apache-2.0，快速實現傳統桌面工具列與 TextEdit。iced 的 text_editor 也可行，但首版重用現有 egui 檔案/歷史流程；Slint 額外的編輯元件與授權選項增加實作成本。egui TextEdit 並非 Scintilla，IME、無障礙與大型檔案需獨立實測。
 
-eframe/egui 0.33，glow 原生 OpenGL，Windows/Linux 共用程式，無 WebView。egui 適合快速建立選單、工具列、分頁與狀態列，MIT OR Apache-2.0。iced 的 text_editor 可提供 IME/highlight，但完整編輯命令與 undo 整合需額外工作；Slint 的授權選項與自訂編輯器成本較高。TextEdit 並非 Scintilla；IME、無障礙與大檔效能尚需專門驗證。
+`core.rs`：內部 LF 正規化的 Content（BOM/EOL 分開保存）、嚴格解碼、同目錄原子儲存、Unicode 搜尋與替換、Tab stops 轉換、history（最多 64 筆/16 MiB）。不依赖 UI。
 
-## 功能對照
+`main.rs`：Document 與穩定分頁 ID、UI、檔案對話框/I/O channel workers、dirty 關閉/退出確認。讀寫期間 UI 可繪製，儲存回覆按文件 ID 與已存 snapshot 比對，避免覆蓋新修改的 dirty。
 
-| 傳統編輯器功能 | 首版 |
-|---|---|
-| 新建／開啟／儲存／另存 | 背景執行檔案對話框與 I/O |
-| 多分頁與未儲存狀態 | 穩定文件 ID；關閉確認；視窗退出確認 |
-| Undo/redo | 各文件獨立歷史，最多 64 筆／16 MiB；全部取代為一次操作 |
-| 搜尋取代 | 大小寫敏感 literal 搜尋、循環下一個、單項／全部取代，Unicode char 邊界 |
-| 編碼／換行 | 嚴格 UTF-8，可切 BOM、LF/CRLF；不猜 Big5/UTF-16 |
-| 語法高亮 | 基礎關鍵字；並非完整語言解析 |
-| 行號／行列／狀態 | Unicode scalar 計數；不等於顯示寬度或 grapheme |
-| 亮暗／繁中 | 可切換；系統 CJK 字型，不散布 Windows 字型 |
-| 插件／多游標／矩形選取 | 不支援 |
+`syntax.rs`：syntect/two-face 語法、原創亮暗色盤、單背景 worker、較新 ticket 淘汰舊任務、各分頁著色结果、LayoutJob cache。每次內容改變重新解析整份 <=256 KiB 文件，跨行 state 不重設；不是增量 lexer。語法 byte ranges 與 TextEdit char cursors 分開；LayoutJob.text 原始 bytes 不變。Tab glyph 按下一個邏輯停止點調整，維持固定行高。
 
-## 架構及安全
+`perf.rs`：明確啟用的啟動/排版探針；`scripts/measure.ps1` 五次取中位數；不作原生鍵鼠或 IME 驗證。
 
-`core.rs`：Content（正規化 LF、BOM、換行）、解編碼、原子儲存、Unicode 搜尋、history。`main.rs`：Document、UI、channel workers。每個文件用穩定 ID 保留 TextEdit 狀態。
+輸入與輸出 2 MiB / 20,000 行 / 單行 16 KiB，開檔最多讀上限+1 byte。NUL、非法 UTF-8、混合 EOL 拒絕，錯誤不改原檔。原子儲存 write_all/sync_all/persist，失敗不先刪舊檔；外部變更比對仍存在檢查至替換間的競態。搜尋/排版/編輯仍需 UI 執行，未承諾巨型檔案流暢。
 
-首版檔案與輸出上限 2 MiB、20,000 行、單行 16 KiB，開檔最多讀上限+1 bytes。禁止 NUL、無效 UTF-8、混合換行；錯誤不更動原檔。同目錄暫存、write_all、sync_all、persist 原子替換；不先清空目標。失敗保留 dirty，儲存中修改的新內容不會誤標為已儲存。避免大檔效能宣稱。檔案 I/O 與對話框在背景執行；文字布局仍在 UI 執行。
-
-已知待補：完整語法、持久偏好、完整 IME／無障礙 QA、捲動虛擬化、Linux 實機 QA。首版不適合多人同時修改同一檔案。
-
-## 官方參考
-
-新增空白處理：可見標記由 galley glyph 座標覆畫，LayoutJob.text 保持原 bytes／char 數；不改 TextEdit 游標映射，不把符號寫入檔案。Tab 字寬透過單 Tab 字型尺度調整且固定行高，1–8 固定空格寬；暫不提供 tab stops 或視覺自動折行。內容轉換使用 Unicode scalar 範圍，驗證完整候選內容後才提交並記一筆 undo。行尾清理限定 U+0020 與 Tab；檔尾換行操作保留其他空白行。預設任何清理均不自動執行。
-
-- https://github.com/notepad-plus-plus/notepad-plus-plus
-- https://github.com/notepad-plus-plus/notepad-plus-plus/blob/master/LICENSE
-- https://docs.rs/eframe/0.33.0/eframe/
-- https://docs.rs/egui/0.33.0/egui/widgets/text_edit/struct.TextEdit.html
-- https://docs.rs/tempfile/3.23.0/tempfile/struct.NamedTempFile.html
+官方參考：https://github.com/notepad-plus-plus/notepad-plus-plus （GPLv3）；RustPad 原創程式 MIT。語法資料由鎖定官方 crates 提供，授權另列，不使用 Notepad++ 程式碼/圖示/品牌。

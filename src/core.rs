@@ -195,6 +195,21 @@ pub enum WhitespaceEdit {
     AddFinalNewline,
     RemoveFinalNewline,
 }
+pub fn tab_advance(column: usize, width: usize) -> usize {
+    let width = width.clamp(1, 8);
+    width - column % width
+}
+pub fn column_at(text: &str, index: usize, width: usize) -> usize {
+    let mut column = 0;
+    for ch in text.chars().take(index) {
+        column = match ch {
+            '\n' => 0,
+            '\t' => column + tab_advance(column, width),
+            _ => column + unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0),
+        }
+    }
+    column
+}
 pub fn edit_whitespace(
     content: &mut Content,
     range: Option<(usize, usize)>,
@@ -211,13 +226,63 @@ pub fn edit_whitespace(
             if !(1..=8).contains(&width) {
                 return Err("Tab 寬度需介於 1 至 8".into());
             }
-            original.replace('\t', &" ".repeat(width))
+            let mut result = String::new();
+            let mut column = column_at(&content.text, start, width);
+            for ch in original.chars() {
+                match ch {
+                    '\t' => {
+                        let advance = tab_advance(column, width);
+                        result.push_str(&" ".repeat(advance));
+                        column += advance;
+                    }
+                    '\n' => {
+                        result.push(ch);
+                        column = 0;
+                    }
+                    _ => {
+                        result.push(ch);
+                        column += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                    }
+                }
+            }
+            result
         }
         WhitespaceEdit::SpacesToTabs(width) => {
             if !(1..=8).contains(&width) {
                 return Err("Tab 寬度需介於 1 至 8".into());
             }
-            original.replace(&" ".repeat(width), "\t")
+            let mut result = String::new();
+            let mut column = column_at(&content.text, start, width);
+            let mut chars = original.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == ' ' {
+                    let mut count = 1;
+                    while chars.peek() == Some(&' ') {
+                        chars.next();
+                        count += 1;
+                    }
+                    while count > 0 {
+                        let advance = tab_advance(column, width);
+                        if count >= advance {
+                            result.push('\t');
+                            column += advance;
+                            count -= advance;
+                        } else {
+                            result.push_str(&" ".repeat(count));
+                            column += count;
+                            count = 0;
+                        }
+                    }
+                } else {
+                    result.push(ch);
+                    column = match ch {
+                        '\n' => 0,
+                        '\t' => column + tab_advance(column, width),
+                        _ => column + unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0),
+                    };
+                }
+            }
+            result
         }
         WhitespaceEdit::TrimTrailing => original
             .split('\n')
@@ -436,5 +501,35 @@ mod tests {
         assert!(edit_whitespace(&mut c, None, WhitespaceEdit::TabsToSpaces(8)).is_err());
         assert_eq!(c, before);
         assert!(edit_whitespace(&mut c, None, WhitespaceEdit::SpacesToTabs(0)).is_err());
+    }
+    #[test]
+    fn tab_stops_conversion_matches_columns_and_selection() {
+        let mut c = Content {
+            text: "a\tb\t\n中文\t🙂\t".into(),
+            ..Default::default()
+        };
+        let original = c.clone();
+        let columns: Vec<_> = c
+            .text
+            .lines()
+            .map(|line| column_at(line, line.chars().count(), 4))
+            .collect();
+        edit_whitespace(&mut c, None, WhitespaceEdit::TabsToSpaces(4)).unwrap();
+        assert_eq!(c.text, "a   b   \n中文    🙂  ");
+        assert_eq!(
+            columns,
+            c.text
+                .lines()
+                .map(|line| column_at(line, line.chars().count(), 4))
+                .collect::<Vec<_>>()
+        );
+        edit_whitespace(&mut c, None, WhitespaceEdit::SpacesToTabs(4)).unwrap();
+        assert_eq!(c, original);
+        let mut c = Content {
+            text: "a  b".into(),
+            ..Default::default()
+        };
+        edit_whitespace(&mut c, Some((1, 3)), WhitespaceEdit::SpacesToTabs(4)).unwrap();
+        assert_eq!(c.text, "a  b");
     }
 }

@@ -1,11 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod core;
+mod perf;
+mod syntax;
 use core::{Content, History, Newline, WhitespaceEdit};
 use eframe::egui::{
     self, Color32, FontId, Key, Modifiers,
     text::{CCursor, CCursorRange},
 };
 use std::{path::PathBuf, sync::mpsc, time::Duration};
+fn history_shortcuts(input: &mut egui::InputState, editor_focused: bool) -> (bool, bool) {
+    if !editor_focused {
+        return (false, false);
+    }
+    let undo = input.consume_key(Modifiers::CTRL, Key::Z);
+    let redo = input.consume_key(Modifiers::CTRL, Key::Y)
+        || input.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::Z);
+    (undo, redo)
+}
 
 struct Document {
     id: u64,
@@ -15,7 +26,8 @@ struct Document {
     history: History,
     cursor: usize,
     selected: (usize, usize),
-    highlight_cache: Option<(String, bool, usize, egui::text::LayoutJob)>,
+    highlight_cache: syntax::LayoutCache,
+    language: Option<syntax::Language>,
 }
 impl Document {
     fn new(id: u64, path: Option<PathBuf>, content: Content) -> Self {
@@ -27,7 +39,8 @@ impl Document {
             history: History::default(),
             cursor: 0,
             selected: (0, 0),
-            highlight_cache: None,
+            highlight_cache: Default::default(),
+            language: None,
         }
     }
     fn dirty(&self) -> bool {
@@ -72,6 +85,8 @@ struct App {
     show_eol: bool,
     tab_width: usize,
     insert_spaces: bool,
+    syntax: syntax::Service,
+    startup_report: Option<PathBuf>,
 }
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -129,6 +144,8 @@ impl App {
             show_eol: false,
             tab_width: 4,
             insert_spaces: false,
+            syntax: syntax::Service::new(cc.egui_ctx.clone()),
+            startup_report: None,
         }
     }
     fn new_doc(&mut self) {
@@ -315,8 +332,20 @@ impl eframe::App for App {
         if let Some(path) = self.capture.clone() {
             self.capture_frame += 1;
             ctx.request_repaint();
-            if self.capture_frame == 4 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            if self.capture_frame == if self.startup_report.is_some() { 1 } else { 4 } {
+                let doc = &self.docs[self.active];
+                let language =
+                    syntax::resolve(doc.path.as_deref(), &doc.content.text, doc.language);
+                if self.startup_report.is_some()
+                    || !self
+                        .syntax
+                        .status(doc.id, &doc.content.text, language, self.dark)
+                        .contains("背景")
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                } else {
+                    self.capture_frame = 3;
+                }
             }
             let screenshot = ctx.input(|input| {
                 input.events.iter().find_map(|event| {
@@ -328,6 +357,9 @@ impl eframe::App for App {
                 })
             });
             if let Some(image) = screenshot {
+                if let Some(report) = &self.startup_report {
+                    perf::report_startup(report);
+                }
                 let result = (|| -> Result<(), Box<dyn std::error::Error>> {
                     let file = std::fs::File::create(path)?;
                     let mut encoder =
@@ -351,6 +383,9 @@ impl eframe::App for App {
             }
         }
         self.poll();
+        self.syntax.poll();
+        self.syntax
+            .retain(&self.docs.iter().map(|doc| doc.id).collect::<Vec<_>>());
         if self.busy {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
@@ -378,15 +413,17 @@ impl eframe::App for App {
             save_as = i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::S);
             save = i.consume_key(Modifiers::CTRL, Key::S);
             close = i.consume_key(Modifiers::CTRL, Key::W);
-            undo = i.consume_key(Modifiers::CTRL, Key::Z);
-            redo = i.consume_key(Modifiers::CTRL, Key::Y)
-                || i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::Z);
+            (undo, redo) = history_shortcuts(i, editor_focused);
             if i.consume_key(Modifiers::CTRL, Key::F) || i.consume_key(Modifiers::CTRL, Key::H) {
                 self.search = true;
             }
             find = i.consume_key(Modifiers::NONE, Key::F3);
             if editor_focused && self.insert_spaces && i.consume_key(Modifiers::NONE, Key::Tab) {
-                i.events.push(egui::Event::Text(" ".repeat(self.tab_width)));
+                let doc = &self.docs[self.active];
+                let column = core::column_at(&doc.content.text, doc.selected.0, self.tab_width);
+                i.events.push(egui::Event::Text(
+                    " ".repeat(core::tab_advance(column, self.tab_width)),
+                ));
             }
         });
         egui::TopBottomPanel::top("chrome").show(ctx, |ui| {
@@ -432,9 +469,9 @@ impl eframe::App for App {
                     }
                 });
                 ui.menu_button("空白", |ui| {
-                    ui.label("Tab 固定字寬（內容不隨顯示設定改動）");
+                    ui.label("Tab stops（每 N 欄對齊；Unicode 邏輯字寬）");
                     ui.add(egui::Slider::new(&mut self.tab_width, 1..=8).text("Tab 寬度"));
-                    ui.checkbox(&mut self.insert_spaces, "按 Tab 插入等量空格");
+                    ui.checkbox(&mut self.insert_spaces, "按 Tab 插入空格至下一個 Tab stop");
                     ui.separator();
                     let selected =
                         self.docs[self.active].selected.0 != self.docs[self.active].selected.1;
@@ -467,6 +504,14 @@ impl eframe::App for App {
                         self.whitespace_edit(WhitespaceEdit::RemoveFinalNewline, false);
                     }
                     ui.label("上述內容轉換可 Ctrl+Z 復原；預設不自動清理");
+                });
+                ui.menu_button("語言", |ui| {
+                    let doc = &mut self.docs[self.active];
+                    ui.selectable_value(&mut doc.language, None, "自動（副檔名／shebang）");
+                    ui.separator();
+                    for language in syntax::Language::ALL {
+                        ui.selectable_value(&mut doc.language, Some(language), language.label());
+                    }
                 });
                 ui.label("RustPad");
             });
@@ -575,6 +620,7 @@ impl eframe::App for App {
         }
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             let d = &self.docs[self.active];
+            let language = syntax::resolve(d.path.as_deref(), &d.content.text, d.language);
             let prefix: String = d.content.text.chars().take(d.cursor).collect();
             let line = prefix.matches('\n').count() + 1;
             let col = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
@@ -582,7 +628,10 @@ impl eframe::App for App {
                 ui.label(&self.message);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!(
-                        "{} | {} | Tab:{}{} | 末尾換行:{} | 行 {line} : 列 {col} | {} 字元",
+                        "{}{} | {} | {} | Tab:{}{} | 末尾:{} | 行 {line}:列 {col} | {} 字",
+                        language.label(),
+                        self.syntax
+                            .status(d.id, &d.content.text, language, self.dark),
                         if d.content.bom { "UTF-8 BOM" } else { "UTF-8" },
                         d.content.newline.label(),
                         self.tab_width,
@@ -605,7 +654,8 @@ impl eframe::App for App {
             )
             .show(ctx, |ui| {
                 let d = &mut self.docs[self.active];
-                let before = d.content.clone();
+                let before =
+                    (!ctx.input(|input| input.events.is_empty())).then(|| d.content.clone());
                 let id = egui::Id::new(("editor", d.id));
                 if let Some((start, end)) = self.selection.take() {
                     let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
@@ -634,34 +684,32 @@ impl eframe::App for App {
                             let dark = self.dark;
                             let tab_width = self.tab_width;
                             let cache = &mut d.highlight_cache;
+                            let path = d.path.clone();
+                            let manual = d.language;
+                            let doc_id = d.id;
+                            let service = &mut self.syntax;
                             let mut layouter =
                                 move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _width: f32| {
-                                    if !cache.as_ref().is_some_and(|(s, theme, tabs, _)| {
-                                        s == text.as_str() && *theme == dark && *tabs == tab_width
-                                    }) {
-                                        *cache = Some((
-                                            text.as_str().to_owned(),
-                                            dark,
-                                            tab_width,
-                                            highlight(
-                                                text.as_str(),
-                                                dark,
-                                                tab_width,
-                                                ui.fonts_mut(|fonts| {
-                                                    fonts.row_height(&FontId::monospace(15.))
-                                                }),
-                                            ),
-                                        ));
-                                    }
-                                    ui.fonts_mut(|fonts| {
-                                        fonts.layout_job(
-                                            cache
-                                                .as_ref()
-                                                .expect("initialized layout cache")
-                                                .3
-                                                .clone(),
+                                    let language =
+                                        syntax::resolve(path.as_deref(), text.as_str(), manual);
+                                    let (height, space) = ui.fonts_mut(|fonts| {
+                                        (
+                                            fonts.row_height(&FontId::monospace(15.)),
+                                            fonts.glyph_width(&FontId::monospace(15.), ' '),
                                         )
-                                    })
+                                    });
+                                    let job = service.layout(
+                                        doc_id,
+                                        text.as_str(),
+                                        language,
+                                        dark,
+                                        tab_width,
+                                        height,
+                                        ui.ctx().pixels_per_point(),
+                                        space,
+                                        cache,
+                                    );
+                                    ui.fonts_mut(|fonts| fonts.layout_job(job))
                                 };
                             let output = egui::TextEdit::multiline(&mut d.content.text)
                                 .id(id)
@@ -689,7 +737,9 @@ impl eframe::App for App {
                             );
                         });
                     });
-                if before != d.content {
+                if let Some(before) = before
+                    && before != d.content
+                {
                     if let Err(error) = core::validate_text(&d.content.text) {
                         d.content = before;
                         self.message = error;
@@ -752,41 +802,6 @@ impl eframe::App for App {
                         }
                     });
                 });
-        }
-    }
-}
-fn append_segment(
-    job: &mut egui::text::LayoutJob,
-    text: &str,
-    color: Color32,
-    tab_width: usize,
-    line_height: f32,
-) {
-    let parts: Vec<&str> = text.split('\t').collect();
-    for (index, part) in parts.iter().enumerate() {
-        if index > 0 {
-            job.append(
-                "\t",
-                0.,
-                egui::TextFormat {
-                    font_id: FontId::monospace(15. * tab_width as f32 / 4.),
-                    line_height: Some(line_height),
-                    color,
-                    ..Default::default()
-                },
-            );
-        }
-        if !part.is_empty() {
-            job.append(
-                part,
-                0.,
-                egui::TextFormat {
-                    font_id: FontId::monospace(15.),
-                    line_height: Some(line_height),
-                    color,
-                    ..Default::default()
-                },
-            );
         }
     }
 }
@@ -860,42 +875,21 @@ fn paint_whitespace(
         }
     }
 }
-fn highlight(text: &str, dark: bool, tab_width: usize, line_height: f32) -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::default();
-    let normal = if dark {
-        Color32::from_rgb(220, 224, 232)
-    } else {
-        Color32::from_rgb(30, 38, 48)
-    };
-    let keyword = if dark {
-        Color32::from_rgb(130, 180, 255)
-    } else {
-        Color32::from_rgb(30, 75, 175)
-    };
-    if text.len() > 256 * 1024 {
-        append_segment(&mut job, text, normal, tab_width, line_height);
-        job.wrap.max_width = f32::INFINITY;
-        return job;
-    }
-    for segment in text.split_inclusive(|c: char| !c.is_alphanumeric() && c != '_') {
-        let word = segment.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_');
-        let color = if [
-            "fn", "let", "mut", "pub", "use", "struct", "enum", "impl", "if", "else", "for",
-            "while", "return", "match", "const", "true", "false", "class", "def", "import",
-            "function", "var",
-        ]
-        .contains(&word)
-        {
-            keyword
-        } else {
-            normal
-        };
-        append_segment(&mut job, segment, color, tab_width, line_height);
-    }
-    job.wrap.max_width = f32::INFINITY;
-    job
-}
 fn main() -> eframe::Result {
+    perf::mark_start();
+    let arguments: Vec<String> = std::env::args().collect();
+    if let Some(index) = arguments.iter().position(|arg| arg == "--benchmark")
+        && let Some(path) = arguments.get(index + 1)
+    {
+        let engine = syntax::Engine::new();
+        perf::benchmark(PathBuf::from(path).as_path(), |text| {
+            let spans = engine
+                .spans(text, syntax::Language::Rust, false, || false)
+                .expect("benchmark grammar");
+            syntax::layout(text, &spans, 4, 18., 9.)
+        });
+        return Ok(());
+    }
     eframe::run_native(
         "RustPad — 文字編輯器",
         eframe::NativeOptions {
@@ -930,6 +924,37 @@ fn main() -> eframe::Result {
                     app.dark = true;
                     cc.egui_ctx.set_visuals(egui::Visuals::dark());
                 }
+                if let Some(index) = args.iter().position(|s| s == "--sample")
+                    && let Some(sample) = args.get(index + 1)
+                {
+                    let (name, text) = match sample.as_str() {
+                        "python" => (
+                            "welcome.py",
+                            "#!/usr/bin/env python3\n\"\"\"跨行文件字串\n保留中文與 emoji 🙂\n\"\"\"\nimport json\n\n# 字串、註解、關鍵字與數字\ndef greet(name: str) -> str:\n    count = 42\n    return f\"你好，{name} {count}\"\n\nprint(greet(\"世界\"))\n",
+                        ),
+                        "json" => (
+                            "settings.json",
+                            "{\n  \"name\": \"RustPad — 中文 🙂\",\n  \"version\": 0.2,\n  \"enabled\": true,\n  \"languages\": [\"Rust\", \"Python\", \"JSON\"],\n  \"empty\": null\n}\n",
+                        ),
+                        _ => (
+                            "welcome.rs",
+                            "/* 跨行註解\n   中文與 emoji 🙂 */\nfn main() {\n\tlet greeting = \"你好，世界 🙂\";  \n\tlet count: usize = 42;\n\tprintln!(\"{greeting} {count}\");\n}\n",
+                        ),
+                    };
+                    app.docs[0].path = Some(PathBuf::from(name));
+                    app.docs[0].content.text = text.into();
+                    app.docs[0].saved = app.docs[0].content.clone();
+                }
+            }
+            if let Some(index) = args.iter().position(|arg| arg == "--startup-probe")
+                && let Some(path) = args.get(index + 1)
+            {
+                let report = PathBuf::from(path);
+                app.capture = Some(report.with_extension("png"));
+                app.startup_report = Some(report);
+                app.docs = vec![Document::new(1, None, Content::default())];
+                app.active = 0;
+                app.search = false;
             }
             Ok(Box::new(app))
         }),
@@ -964,6 +989,8 @@ mod app_tests {
             show_eol: false,
             tab_width: 4,
             insert_spaces: false,
+            syntax: syntax::Service::new(egui::Context::default()),
+            startup_report: None,
         }
     }
     #[test]
@@ -1054,8 +1081,28 @@ mod app_tests {
         let _ = ctx.run(Default::default(), |ctx| {
             dimensions = Some(ctx.fonts_mut(|fonts| {
                 let height = fonts.row_height(&FontId::monospace(15.));
-                let small = fonts.layout_job(highlight(text, false, 2, height));
-                let large = fonts.layout_job(highlight(text, false, 8, height));
+                let small = fonts.layout_job(syntax::layout(
+                    text,
+                    &[syntax::Span {
+                        start: 0,
+                        end: text.len(),
+                        color: syntax::normal(false),
+                    }],
+                    2,
+                    height,
+                    9.,
+                ));
+                let large = fonts.layout_job(syntax::layout(
+                    text,
+                    &[syntax::Span {
+                        start: 0,
+                        end: text.len(),
+                        color: syntax::normal(false),
+                    }],
+                    8,
+                    height,
+                    9.,
+                ));
                 assert_eq!(small.job.text, text);
                 assert_eq!(large.job.text, text);
                 assert_eq!(small.rows.len(), large.rows.len());
@@ -1080,5 +1127,71 @@ mod app_tests {
         let d = &mut a.docs[0];
         d.history.undo(&mut d.content);
         assert!(!d.dirty());
+    }
+    #[test]
+    fn search_focus_does_not_steal_undo_from_editor() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        let snapshot = a.docs[0].content.clone();
+        a.docs[0].history.record(snapshot);
+        a.docs[0].content.text = "keep editor change".into();
+        let before = a.docs[0].content.clone();
+        ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("find-query")));
+        let _ = ctx.run(
+            egui::RawInput {
+                modifiers: Modifiers::CTRL,
+                events: vec![egui::Event::Key {
+                    key: Key::Z,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::CTRL,
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                let focus = ctx.memory(|memory| memory.has_focus(egui::Id::new(("editor", 1_u64))));
+                ctx.input_mut(|input| {
+                    let (undo, redo) = history_shortcuts(input, focus);
+                    assert!(!undo && !redo);
+                    assert!(input.consume_key(Modifiers::CTRL, Key::Z));
+                });
+            },
+        );
+        assert_eq!(a.docs[0].content, before);
+    }
+    #[test]
+    fn save_as_same_text_resolves_new_language_without_dirty() {
+        let mut a = app();
+        let text = Content {
+            text: "let n=42;".into(),
+            ..Default::default()
+        };
+        a.docs[0].content = text.clone();
+        a.docs[0].saved = text.clone();
+        a.docs[0].path = Some(PathBuf::from("same.txt"));
+        assert_eq!(
+            syntax::resolve(a.docs[0].path.as_deref(), &text.text, None),
+            syntax::Language::Plain
+        );
+        a.tx.send(ResultEvent::Save(
+            1,
+            text.clone(),
+            Ok(Some(PathBuf::from("same.rs"))),
+            false,
+        ))
+        .unwrap();
+        a.poll();
+        assert_eq!(
+            syntax::resolve(a.docs[0].path.as_deref(), &text.text, None),
+            syntax::Language::Rust
+        );
+        a.docs[0].language = Some(syntax::Language::Python);
+        a.dark = true;
+        a.tab_width = 8;
+        assert!(!a.docs[0].dirty());
+        let doc = &mut a.docs[0];
+        doc.history.undo(&mut doc.content);
+        assert_eq!(doc.content, text);
     }
 }

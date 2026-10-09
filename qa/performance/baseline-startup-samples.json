@@ -1,0 +1,22 @@
+[
+  {
+    "ms": 365.7296,
+    "sampled_startup_peak_bytes": 185737216
+  },
+  {
+    "ms": 380.4472,
+    "sampled_startup_peak_bytes": 186028032
+  },
+  {
+    "ms": 389.5163,
+    "sampled_startup_peak_bytes": 186056704
+  },
+  {
+    "ms": 389.8997,
+    "sampled_startup_peak_bytes": 186011648
+  },
+  {
+    "ms": 358.5416,
+    "sampled_startup_peak_bytes": 185806848
+  }
+]
