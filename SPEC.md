@@ -1,6 +1,6 @@
-# RustPad 0.3 規格與架構
+# RustPad 0.4 規格與架構
 
-目前功能矩陣：[ALIGNMENT.md](ALIGNMENT.md)；本輪操作與差異：[DIFF-0.3.md](DIFF-0.3.md)。0.2 歷史規格：[V02.md](V02.md)。
+目前功能矩陣：[ALIGNMENT.md](ALIGNMENT.md)；本輪操作與差異：[DIFF-0.4.md](DIFF-0.4.md)。0.2 歷史規格：[V02.md](V02.md)。
 
 選用 eframe/egui 0.33 + glow 原生 OpenGL：同碼 Windows/Linux，MIT/Apache-2.0，快速實現傳統桌面工具列與 TextEdit。iced 的 text_editor 也可行，但首版重用現有 egui 檔案/歷史流程；Slint 額外的編輯元件與授權選項增加實作成本。egui TextEdit 並非 Scintilla，IME、無障礙與大型檔案需獨立實測。
 
@@ -23,3 +23,9 @@
 App 中 >256 KiB 文件或 >128-byte query 的搜尋/count/replace 放背景 thread，ResultEvent 帶 document ID、Content snapshot、query、replacement、條件及 task。UI 回覆核對當前分頁/內容/條件，過期不提交。短操作仍 UI 執行；不宣稱鍵鼠延遲保證。每個批次命令只 record 一筆 undo，導覽不 dirty；程序捲動立即顯示目標。
 
 固定母項/驗收/狀態見 ALIGNMENT.md，使用方式見 DIFF-0.3.md；不足不以縮分母達標。
+
+## 0.4 背景搜尋
+
+`pattern.rs` 使用 pinned regex 1.13.1，編譯 NFA/DFA 各 1 MiB、query/template 各 16 KiB、單文件最多 20,000 匹配；有界 capture 展開先驗證候選再提交。regex 操作一律背景執行，沿用 snapshot guard 與單次 undo。literal 行為不變。
+
+`filesearch.rs` 以獨立 worker/channel 與 AtomicBool 執行唯讀 root scan。跳過 symlink/reparse points，canonical containment 檢查，既有安全解碼；讀取總預算 32 MiB、1000 檔、10000 目錄項目、深度 32、2000 命中。結果保存路徑、行號、scalar 範圍、160 scalar 預覽與內容 fingerprint；點擊以 I/O worker 重讀，比對磁碟與已開啟分頁後選取。取消不是中斷 OS syscall 或單次 regex engine 呼叫；不宣稱對惡意並行更換 symlink 的無競態 sandbox。

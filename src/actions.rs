@@ -7,6 +7,7 @@ pub enum Task {
     ReplaceOne { range: (usize, usize) },
 }
 pub enum Outcome {
+    Error(String),
     Found(Option<(usize, usize)>),
     Count(usize),
     Replaced(Result<(Content, usize), String>),
@@ -18,6 +19,11 @@ pub fn execute(
     options: SearchOptions,
     task: Task,
 ) -> Outcome {
+    if options.regex
+        && let Err(error) = crate::pattern::ranges(&content.text, query, options)
+    {
+        return Outcome::Error(error);
+    }
     match task {
         Task::Find { from, backward } => {
             Outcome::Found(next_match(&content.text, query, from, options, backward))
@@ -46,6 +52,7 @@ pub fn execute(
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SearchOptions {
+    pub regex: bool,
     pub match_case: bool,
     pub whole_word: bool,
     pub wrap: bool,
@@ -53,13 +60,14 @@ pub struct SearchOptions {
 impl Default for SearchOptions {
     fn default() -> Self {
         Self {
+            regex: false,
             match_case: true,
             whole_word: false,
             wrap: true,
         }
     }
 }
-fn word(ch: char) -> bool {
+pub(crate) fn word(ch: char) -> bool {
     ch.is_alphanumeric()
         || ch == '_'
         || (!ch.is_control() && unicode_width::UnicodeWidthChar::width(ch) == Some(0))
@@ -229,6 +237,9 @@ impl<'a> Prepared<'a> {
     }
 }
 pub fn matches(text: &str, query: &str, options: SearchOptions) -> Vec<(usize, usize)> {
+    if options.regex {
+        return crate::pattern::ranges(text, query, options).unwrap_or_default();
+    }
     if query.is_empty() {
         return vec![];
     }
@@ -246,6 +257,23 @@ pub fn next_match(
     options: SearchOptions,
     backward: bool,
 ) -> Option<(usize, usize)> {
+    if options.regex {
+        let ranges = crate::pattern::ranges(text, query, options).ok()?;
+        return if backward {
+            ranges
+                .iter()
+                .rev()
+                .find(|r| r.1 <= from && r.0 < from)
+                .copied()
+                .or_else(|| options.wrap.then(|| ranges.last().copied()).flatten())
+        } else {
+            ranges
+                .iter()
+                .find(|r| r.0 >= from)
+                .copied()
+                .or_else(|| options.wrap.then(|| ranges.first().copied()).flatten())
+        };
+    }
     if query.is_empty() {
         return None;
     }
@@ -275,6 +303,9 @@ pub fn replace_current(
     options: SearchOptions,
     range: (usize, usize),
 ) -> Result<usize, String> {
+    if options.regex {
+        return crate::pattern::replace(content, query, replacement, options, Some(range), true);
+    }
     if next_match(
         &content.text,
         query,
@@ -301,6 +332,9 @@ pub fn replace_matches(
     options: SearchOptions,
     range: Option<(usize, usize)>,
 ) -> Result<usize, String> {
+    if options.regex {
+        return crate::pattern::replace(content, query, replacement, options, range, false);
+    }
     let chars = content.text.chars().count();
     let range = range.unwrap_or((0, chars));
     if range.0 > range.1 || range.1 > chars {

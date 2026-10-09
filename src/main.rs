@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod actions;
 mod core;
+mod filesearch;
+mod pattern;
 mod perf;
 mod syntax;
 use core::{Content, History, Newline, WhitespaceEdit};
@@ -60,6 +62,7 @@ impl Document {
     }
 }
 enum ResultEvent {
+    Navigate(filesearch::Hit, Result<Content, String>),
     Open(Result<Option<(PathBuf, Content)>, String>),
     Save(u64, Content, Result<Option<PathBuf>, String>, bool),
     Action(
@@ -72,7 +75,19 @@ enum ResultEvent {
         actions::Outcome,
     ),
 }
+enum FilesEvent {
+    Root(Option<PathBuf>),
+    Done(Result<filesearch::Report, String>),
+}
 struct App {
+    files_tx: mpsc::Sender<FilesEvent>,
+    files_rx: mpsc::Receiver<FilesEvent>,
+    files_open: bool,
+    files_root: Option<PathBuf>,
+    files_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    files_report: filesearch::Report,
+    files_query: String,
+    qa_navigate: bool,
     docs: Vec<Document>,
     active: usize,
     next_id: u64,
@@ -105,6 +120,112 @@ struct App {
     repaint: egui::Context,
 }
 impl App {
+    fn choose_root(&mut self) {
+        if self.files_cancel.is_some() {
+            return;
+        }
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.files_cancel = Some(cancel);
+        let tx = self.files_tx.clone();
+        let ctx = self.repaint.clone();
+        std::thread::spawn(move || {
+            let root = rfd::FileDialog::new()
+                .set_title("選擇搜尋根資料夾")
+                .pick_folder()
+                .and_then(|p| p.canonicalize().ok());
+            let _ = tx.send(FilesEvent::Root(root));
+            ctx.request_repaint();
+        });
+    }
+    fn search_files(&mut self) {
+        if self.files_cancel.is_some() {
+            return;
+        }
+        let Some(root) = self.files_root.clone() else {
+            self.message = "請先選擇搜尋根資料夾".into();
+            return;
+        };
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.files_cancel = Some(cancel.clone());
+        let query = self.query.clone();
+        let options = self.search_options;
+        self.files_query = format!(
+            "{} [{}、{}、{}]",
+            query,
+            if options.regex { "regex" } else { "literal" },
+            if options.match_case {
+                "大小寫敏感"
+            } else {
+                "忽略大小寫"
+            },
+            if options.whole_word {
+                "全字"
+            } else {
+                "任意位置"
+            }
+        );
+        self.files_report = Default::default();
+        let tx = self.files_tx.clone();
+        let ctx = self.repaint.clone();
+        self.message = "背景多檔搜尋中；可取消，僅讀取磁碟內容".into();
+        std::thread::spawn(move || {
+            let result = filesearch::scan(&root, &query, options, &cancel);
+            let _ = tx.send(FilesEvent::Done(result));
+            ctx.request_repaint();
+        });
+    }
+    fn navigate_hit(&mut self, hit: filesearch::Hit) {
+        if self.busy {
+            self.message = "請等待檔案工作完成".into();
+            return;
+        }
+        let root = self.files_root.clone();
+        let tx = self.tx.clone();
+        let ctx = self.repaint.clone();
+        self.busy = true;
+        std::thread::spawn(move || {
+            let result = (|| {
+                let path = hit.path.canonicalize().map_err(|e| e.to_string())?;
+                let root = root
+                    .ok_or("搜尋根已消失")?
+                    .canonicalize()
+                    .map_err(|e| e.to_string())?;
+                if !path.starts_with(root) {
+                    return Err("結果已離開搜尋根；拒絕開啟".into());
+                }
+                let content = core::read_file(&path)?;
+                if filesearch::fingerprint(&content.text) != hit.fingerprint {
+                    return Err("檔案已變更，請重新搜尋".into());
+                }
+                Ok(content)
+            })();
+            let _ = tx.send(ResultEvent::Navigate(hit, result));
+            ctx.request_repaint();
+        });
+    }
+    fn apply_hit(&mut self, hit: filesearch::Hit, content: Content) {
+        let index = if let Some(index) = self
+            .docs
+            .iter()
+            .position(|d| d.path.as_ref() == Some(&hit.path))
+        {
+            if self.docs[index].content.text != content.text {
+                self.message = "已開啟文件與搜尋結果不同；保留分頁，請重新搜尋".into();
+                return;
+            }
+            index
+        } else {
+            self.docs
+                .push(Document::new(self.next_id, Some(hit.path), content));
+            self.next_id += 1;
+            self.docs.len() - 1
+        };
+        self.activate(index);
+        self.docs[index].cursor = hit.range.1;
+        self.docs[index].selected = hit.range;
+        self.selection = Some(hit.range);
+        self.message = format!("已定位第 {} 行", hit.line);
+    }
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut fonts = egui::FontDefinitions::default();
         for path in [
@@ -137,7 +258,16 @@ impl App {
         cc.egui_ctx.set_fonts(fonts);
         cc.egui_ctx.set_visuals(egui::Visuals::light());
         let (tx, rx) = mpsc::channel();
+        let (files_tx, files_rx) = mpsc::channel();
         Self {
+            files_tx,
+            files_rx,
+            files_open: false,
+            files_root: None,
+            files_cancel: None,
+            files_report: Default::default(),
+            files_query: String::new(),
+            qa_navigate: false,
             docs: vec![Document::new(1, None, Content::default())],
             active: 0,
             next_id: 2,
@@ -186,7 +316,10 @@ impl App {
         std::thread::spawn(move || {
             let result = rfd::FileDialog::new()
                 .pick_file()
-                .map(|p| core::read_file(&p).map(|c| (p, c)))
+                .map(|p| {
+                    core::read_file(&p)
+                        .and_then(|c| p.canonicalize().map(|p| (p, c)).map_err(|e| e.to_string()))
+                })
                 .transpose();
             let _ = tx.send(ResultEvent::Open(result));
             ctx.request_repaint();
@@ -219,7 +352,7 @@ impl App {
                         return Err("磁碟內容已被外部修改；請另存新檔避免覆寫".into());
                     }
                     core::atomic_save(&p, &content)?;
-                    Ok(Some(p))
+                    Ok(Some(p.canonicalize().unwrap_or(p)))
                 } else {
                     Ok(None)
                 }
@@ -271,7 +404,10 @@ impl App {
             return true;
         }
         let d = &self.docs[self.active];
-        if d.content.text.len() <= 256 * 1024 && self.query.len() <= 128 {
+        if !self.search_options.regex
+            && d.content.text.len() <= 256 * 1024
+            && self.query.len() <= 128
+        {
             return false;
         }
         let (id, before, query, replacement, options) = (
@@ -304,11 +440,23 @@ impl App {
     }
     fn find_direction(&mut self, backward: bool) {
         let d = &self.docs[self.active];
-        let from = if backward {
+        let mut from = if backward {
             d.selected.0.min(d.cursor)
         } else {
             d.cursor
         };
+        if !backward
+            && self.search_options.regex
+            && self
+                .match_range
+                .is_some_and(|(id, r)| id == d.id && r.0 == r.1 && r.1 == from)
+            && self
+                .match_signature
+                .as_ref()
+                .is_some_and(|(q, o)| q == &self.query && o == &self.search_options)
+        {
+            from = from.saturating_add(1);
+        }
         if self.maybe_background(actions::Task::Find { from, backward }) {
             return;
         }
@@ -346,7 +494,9 @@ impl App {
                 .match_signature
                 .as_ref()
                 .is_some_and(|(q, o)| q == &self.query && o == &self.search_options)
-            && (self.docs[self.active].content.text.len() > 256 * 1024 || self.query.len() > 128)
+            && (self.search_options.regex
+                || self.docs[self.active].content.text.len() > 256 * 1024
+                || self.query.len() > 128)
         {
             self.maybe_background(actions::Task::ReplaceOne { range });
             return;
@@ -493,9 +643,48 @@ impl App {
         }
     }
     fn poll(&mut self) {
+        while let Ok(event) = self.files_rx.try_recv() {
+            self.files_cancel = None;
+            match event {
+                FilesEvent::Root(root) => {
+                    if let Some(root) = root {
+                        self.files_root = Some(root);
+                        self.files_report = Default::default();
+                    }
+                }
+                FilesEvent::Done(Ok(report)) => {
+                    self.message = format!(
+                        "搜尋{}：{} 處／{} 檔，略過 {}{}",
+                        if report.cancelled {
+                            "已取消"
+                        } else {
+                            "完成"
+                        },
+                        report.hits.len(),
+                        report.files,
+                        report.skipped,
+                        if report.limited {
+                            "；已達限制，結果不完整"
+                        } else {
+                            ""
+                        }
+                    );
+                    self.files_report = report;
+                    if self.qa_navigate {
+                        self.qa_navigate = false;
+                        if let Some(hit) = self.files_report.hits.first().cloned() {
+                            self.navigate_hit(hit);
+                        }
+                    }
+                }
+                FilesEvent::Done(Err(error)) => self.message = error,
+            }
+        }
         while let Ok(event) = self.rx.try_recv() {
             self.busy = false;
             match event {
+                ResultEvent::Navigate(hit, Ok(content)) => self.apply_hit(hit, content),
+                ResultEvent::Navigate(_, Err(error)) => self.message = error,
                 ResultEvent::Action(id, before, query, replacement, options, task, outcome) => {
                     let d = &mut self.docs[self.active];
                     if d.id != id
@@ -509,6 +698,7 @@ impl App {
                         continue;
                     }
                     match outcome {
+                        actions::Outcome::Error(error) => self.message = error,
                         actions::Outcome::Found(range) => {
                             self.selection = range;
                             self.match_range = range.map(|r| (id, r));
@@ -529,15 +719,23 @@ impl App {
                         }
                         actions::Outcome::Replaced(result) => match result {
                             Ok((after, count)) => {
+                                let cursor = if let actions::Task::ReplaceOne { range } = task {
+                                    range.0
+                                        + after.text.chars().count().saturating_sub(
+                                            before
+                                                .text
+                                                .chars()
+                                                .count()
+                                                .saturating_sub(range.1 - range.0),
+                                        )
+                                } else {
+                                    d.cursor.min(after.text.chars().count())
+                                };
                                 if before != after {
                                     d.history.record(before);
                                     d.content = after;
                                 }
-                                d.cursor = if let actions::Task::ReplaceOne { range } = task {
-                                    range.0 + replacement.chars().count()
-                                } else {
-                                    d.cursor.min(d.content.text.chars().count())
-                                };
+                                d.cursor = cursor;
                                 self.selection = Some((d.cursor, d.cursor));
                                 self.match_range = None;
                                 self.message = format!("背景取代完成：{count} 處");
@@ -591,19 +789,21 @@ impl eframe::App for App {
         if let Some(path) = self.capture.clone() {
             self.capture_frame += 1;
             ctx.request_repaint();
-            if self.capture_frame == if self.startup_report.is_some() { 1 } else { 4 } {
+            if self.capture_frame == if self.startup_report.is_some() { 1 } else { 12 } {
                 let doc = &self.docs[self.active];
                 let language =
                     syntax::resolve(doc.path.as_deref(), &doc.content.text, doc.language);
                 if self.startup_report.is_some()
-                    || !self
-                        .syntax
-                        .status(doc.id, &doc.content.text, language, self.dark)
-                        .contains("背景")
+                    || (!self.busy
+                        && self.files_cancel.is_none()
+                        && !self
+                            .syntax
+                            .status(doc.id, &doc.content.text, language, self.dark)
+                            .contains("背景"))
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
                 } else {
-                    self.capture_frame = 3;
+                    self.capture_frame = 11;
                 }
             }
             let screenshot = ctx.input(|input| {
@@ -645,7 +845,7 @@ impl eframe::App for App {
         self.syntax.poll();
         self.syntax
             .retain(&self.docs.iter().map(|doc| doc.id).collect::<Vec<_>>());
-        if self.busy {
+        if self.busy || self.files_cancel.is_some() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         if ctx.input(|i| i.viewport().close_requested())
@@ -735,6 +935,10 @@ impl eframe::App for App {
                     redo |= ui.button("重做    Ctrl+Y").clicked();
                 });
                 ui.menu_button("搜尋", |ui| {
+                    if ui.button("多檔搜尋（唯讀）…").clicked() {
+                        self.files_open = true;
+                        self.search = true;
+                    }
                     previous |= ui.button("尋找上一個    Shift+F3").clicked();
                     if ui.button("跳至行…    Ctrl+G").clicked() {
                         self.goto_open = true;
@@ -886,13 +1090,32 @@ impl eframe::App for App {
                     ui.checkbox(&mut self.search_options.whole_word, "全字");
                     ui.checkbox(&mut self.search_options.wrap, "循環搜尋");
                     ui.checkbox(&mut self.in_selection, "計數／全部取代限選取範圍");
-                    ui.weak("一般文字；不含 regex");
+                    ui.checkbox(&mut self.search_options.regex, "正規表示式");
                 });
                 if before != (self.query.clone(), self.search_options) {
                     self.match_range = None;
                 }
             }
         });
+        if self.files_open {
+            let mut selected_hit = None;
+            egui::TopBottomPanel::bottom("file-results").resizable(true).default_height(180.).show(ctx,|ui| {
+                ui.horizontal(|ui| {
+                    ui.strong("多檔搜尋");
+                    if ui.add_enabled(self.files_cancel.is_none(),egui::Button::new("選擇根資料夾…")).clicked() {self.choose_root();}
+                    if ui.add_enabled(self.files_cancel.is_none(),egui::Button::new("開始搜尋")).clicked() {self.search_files();}
+                    if let Some(cancel)=&self.files_cancel && ui.button("取消工作").clicked() {cancel.store(true,std::sync::atomic::Ordering::Relaxed);}
+                    if ui.button("收起").clicked() {self.files_open=false;}
+                    ui.label(self.files_root.as_ref().map_or("尚未選擇根資料夾".into(),|p|p.file_name().unwrap_or_default().to_string_lossy().into_owned())).on_hover_text(self.files_root.as_ref().map_or(String::new(),|p|p.display().to_string()));
+                });
+                ui.weak("僅讀磁碟；1000 檔／32 MiB／2000 命中／10000 項目／深度 32；跳過連結、.git、target 與無法安全開啟的檔案");
+                ui.label(format!("結果條件：{}；{} 處{}{}",self.files_query,self.files_report.hits.len(),if self.files_report.cancelled {"（已取消；部分結果）"}else{""},if self.files_report.limited {"（已達限制；部分結果）"}else{""}));
+                egui::ScrollArea::both().show(ui,|ui| {for hit in &self.files_report.hits {if ui.selectable_label(false,format!("{}:{}  {}",self.files_root.as_ref().and_then(|root|hit.path.strip_prefix(root).ok()).unwrap_or(&hit.path).display(),hit.line,hit.preview)).on_hover_text(hit.path.display().to_string()).clicked() {selected_hit=Some(hit.clone());}}});
+            });
+            if let Some(hit) = selected_hit {
+                self.navigate_hit(hit);
+            }
+        }
         if goto_requested {
             ctx.memory_mut(|m| m.request_focus(egui::Id::new("goto-line")));
         }
@@ -1309,6 +1532,36 @@ fn main() -> eframe::Result {
             {
                 app.docs[0].path = Some(PathBuf::from("qa-demo.txt"));
                 match flow.as_str() {
+                    "regex" | "regex-error" => {
+                        app.docs[0].content.text =
+                            "中文 12\n中文 34\n🙂 保留 Unicode、BOM 與 CRLF\n".into();
+                        app.docs[0].content.bom = true;
+                        app.docs[0].content.newline = Newline::Crlf;
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.search_options.regex = true;
+                        app.query = if flow == "regex-error" {
+                            "(".into()
+                        } else {
+                            r"(?m)^(中文) (\d+)$".into()
+                        };
+                        app.replacement = "${2}:$1 $$".into();
+                        if flow == "regex-error" {
+                            app.find_next();
+                        } else {
+                            app.replace_all();
+                        }
+                    }
+                    "files" | "file-navigation" => {
+                        if let Some(index) = args.iter().position(|s| s == "--qa-root")
+                            && let Some(root) = args.get(index + 1)
+                        {
+                            app.files_root = PathBuf::from(root).canonicalize().ok();
+                            app.query = "Rust".into();
+                            app.files_open = true;
+                            app.qa_navigate = flow == "file-navigation";
+                            app.search_files();
+                        }
+                    }
                     "search" => {
                         app.docs[0].content.text =
                             "Rust RUST rusty\n中文 Rust 中文Rust\n🙂 rust_ RUST\n".into();
@@ -1355,6 +1608,106 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod app_tests {
     use super::*;
+    fn wait_idle(a: &mut App) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while a.busy || a.files_cancel.is_some() {
+            assert!(std::time::Instant::now() < deadline, "worker timeout");
+            std::thread::sleep(Duration::from_millis(1));
+            a.poll();
+        }
+    }
+    #[test]
+    fn file_search_worker_and_stale_disk_navigation_are_safe() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.txt");
+        std::fs::write(&path, "中文 Rust\r\n").unwrap();
+        let mut a = app();
+        a.files_root = Some(dir.path().to_owned());
+        a.query = "Rust".into();
+        a.search_files();
+        wait_idle(&mut a);
+        assert_eq!(a.files_report.hits.len(), 1);
+        let hit = a.files_report.hits[0].clone();
+        std::fs::write(&path, "外部修改\n").unwrap();
+        let old = a.docs[0].content.clone();
+        a.navigate_hit(hit);
+        wait_idle(&mut a);
+        assert_eq!(a.docs[0].content, old);
+        assert_eq!(a.docs.len(), 1);
+        assert!(a.message.contains("已變更"));
+    }
+    #[test]
+    fn invalid_regex_is_visible_and_cannot_modify_the_document() {
+        let mut a = app();
+        a.docs[0].content.text = "中文 Rust".into();
+        let old = a.docs[0].content.clone();
+        a.query = "(".into();
+        a.search_options.regex = true;
+        a.replacement = "損毀".into();
+        a.replace_all();
+        wait_idle(&mut a);
+        assert_eq!(a.docs[0].content, old);
+        assert!(a.message.contains("正規表示式錯誤"));
+    }
+    #[test]
+    fn regex_zero_length_next_advances_and_capture_cursor_is_real() {
+        let mut a = app();
+        a.docs[0].content.text = "中🙂".into();
+        a.query = "(?:)".into();
+        a.search_options.regex = true;
+        a.find_next();
+        while a.busy {
+            std::thread::sleep(Duration::from_millis(1));
+            a.poll();
+        }
+        assert_eq!(a.docs[0].selected, (0, 0));
+        a.find_next();
+        while a.busy {
+            std::thread::sleep(Duration::from_millis(1));
+            a.poll();
+        }
+        assert_eq!(a.docs[0].selected, (1, 1));
+        a.query = "(中)".into();
+        a.docs[0].cursor = 0;
+        a.replacement = "${1}${1}${1}".into();
+        a.find_next();
+        while a.busy {
+            std::thread::sleep(Duration::from_millis(1));
+            a.poll();
+        }
+        a.replace_one();
+        while a.busy {
+            std::thread::sleep(Duration::from_millis(1));
+            a.poll();
+        }
+        assert_eq!(a.docs[0].content.text, "中中中🙂");
+        assert_eq!(a.docs[0].cursor, 3);
+    }
+    #[test]
+    fn file_hit_navigation_preserves_dirty_tabs_and_selects_unicode_range() {
+        let mut a = app();
+        let path = PathBuf::from("fixture.txt");
+        let c = Content {
+            text: "中 Rust".into(),
+            ..Default::default()
+        };
+        a.docs[0].path = Some(path.clone());
+        a.docs[0].content.text = "私有未存變更".into();
+        let hit = filesearch::Hit {
+            path,
+            line: 1,
+            preview: "中 Rust".into(),
+            range: (2, 6),
+            fingerprint: filesearch::fingerprint(&c.text),
+        };
+        a.apply_hit(hit.clone(), c.clone());
+        assert_eq!(a.docs[0].content.text, "私有未存變更");
+        assert_eq!(a.docs.len(), 1);
+        a.docs[0].content = c.clone();
+        a.apply_hit(hit, c);
+        assert_eq!(a.docs[0].selected, (2, 6));
+        assert_eq!(a.selection, Some((2, 6)));
+    }
     #[test]
     fn replace_current_uses_the_match_found_from_inside_an_overlap() {
         let mut a = app();
@@ -1521,7 +1874,16 @@ mod app_tests {
     }
     fn app() -> App {
         let (tx, rx) = mpsc::channel();
+        let (files_tx, files_rx) = mpsc::channel();
         App {
+            files_tx,
+            files_rx,
+            files_open: false,
+            files_root: None,
+            files_cancel: None,
+            files_report: Default::default(),
+            files_query: String::new(),
+            qa_navigate: false,
             docs: vec![Document::new(1, None, Content::default())],
             active: 0,
             next_id: 2,

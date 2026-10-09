@@ -2,3 +2,5 @@
 
 /metadata-windows.json
 /qa/*.log
+
+/qa/performance-v04/*/startup-*.png

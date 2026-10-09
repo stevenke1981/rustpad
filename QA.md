@@ -1,42 +1,22 @@
-# RustPad 0.3 驗證記錄
+# RustPad 0.4 驗證
 
-2026-10-09（台灣），Windows NT 10.0.22631 / x86_64 MSVC / Rust 1.99.0。主機 5900X 為使用者提供，CIM 未獨立核實。編譯 -j1；不安裝新依賴，不改其他專案或重啟客戶端。
+Windows 11 / Rust 1.99.0 MSVC，cargo -j1。fmt、clippy --all-targets -D warnings、locked test、release build；Windows 54 tests，Ubuntu CI 另有 Unix symlink loop test（55 tests）。CI 終態以本次提交的 GitHub Actions 為準。
 
-## 自動驗收與 RED
+RED → GREEN：先放 regex stub，Unicode/capture 與零長度批次 2 tests 失敗；實作後通過。再放 filesearch stub，BOM/CRLF/binary/root 與取消 2 tests 失敗；實作後通過。新增 app 零長度連續下一個 regression，實際停留 (0,0) 而預期 (1,1) 失敗；修正前進一個 scalar，通過，capture 展開後游標按實際長度定位。另有範圍計算 fixture 原預期 (9,13)，手算修正 normalized scalar (8,12)；不是產品 bug。
 
-fmt、clippy `--locked -j1 --all-targets -- -D warnings` 與 test 通過：**42 tests / 0 failed**。沿用 0.2 的 Unicode/BOM/EOL、原子失敗保存舊檔、dirty 取消/關閉、undo、語法跨行與 byte ranges 等 27 項，加 15 項回歸。
+其餘補充 regression 在功能實作後加入：replacement template 與官方 regex replace_all 對照、18,000 行搜尋、編譯／匹配／輸出上限原文不變、非法語法 UI 可見、background 多檔結果與磁碟變更拒絕定位、dirty tab 不覆寫、結果上限／大檔略過。既有 42 tests 保留。Linux symlink 循環／外根連結在 Ubuntu CI 執行；Windows junction 實體 fixture 未執行，只有 Windows reparse skip 程式分支。
 
-RED 記錄：
+## 真正 Windows framebuffer
 
-1. 搜尋條件/前後導航/選取取代/跳行四項先在未實作 stub 上失敗，最小實作後轉綠。
-2. 行複製/刪除與 Unicode 大小寫兩項先失敗，再實作；含 EOF 空行、ß→SS、BOM/CRLF、無選取、20k 行上限不部分修改。
-3. 改 query 或搜尋條件後沿用舊命中會把「Rust」改成錯誤 replacement：先重現失敗，再加入搜尋 signature 保護。
-4. 游標位於重疊命中內，向前/向後錯過最近匹配：先重現失敗，再使用游標範圍的正向 find / 反向 rfind；計數/批次取代仍維持不重疊。
-5. 希臘字母 sigma 的字串/單字元小寫規則不同，來源與 query 原本不對稱，連相同 `ΟΣ` 都找不到：先重現，再統一兩側的 per-scalar lowercase 映射；不承諾 full case folding。
-6. 重疊範圍已找到但單項取代沿用全文件不重疊集合，導致無法取代：先重現，再讓單項取代驗證當前游標命中，批次計數/取代仍不重疊。
+四張 PNG 是 release executable 透過 eframe/glow Screenshot 事件讀回的原生 renderer pixels，明確 opt-in QA fixtures 後自動退出：
 
-另外驗證分頁內容隔離、新建非 dirty、選取範圍 count/replace 共用條件、一次 undo/redo、非法跳行不 dirty。背景工作測試使用 18,000 行（>256 KiB）實際 thread/channel：count、批次取代、undo，以及工作期間修改內容、改 query、切分頁時結果不得修改新狀態。這兩項背景回歸在實作後加入，未冒稱先行 RED。
+- qa/v04-regex.png：群組替換成 `12:中文 $`、`34:中文 $`，dirty、UTF-8 BOM/CRLF 保留。
+- qa/v04-regex-error.png：非法 `(` 明示 parse error，內容未變。
+- qa/v04-files.png：3 檔候選、1 binary 略過、4 處磁碟命中，底部根/條件/路徑/行號/預覽。
+- qa/v04-file-navigation.png：背景重讀後開啟 example.rs、選取第 2 行 Rust，保留既有分頁。
 
-## 真實 renderer
+重現：`rustpad.exe --screenshot <output.png> --qa-flow regex|regex-error|files|file-navigation --qa-root <qa/v04-fixtures absolute path> --dark`。後兩者才需要 root；QA 根必須是自有 fixtures。畫面已逐張檢視，檔案面板使用相對路徑避免把本機完整路徑放進公開截圖。截圖不代表真人輸入或系統事件已驗證。
 
-最後 release 以原生 Windows eframe/glow screenshot event 輸出，逐張查看：
+**NOT EXECUTED**：原生键鼠/剪貼簿/系統選檔與資料夾對話框、完整繁中 IME、Linux desktop GUI、Windows junction fixture、並行 symlink 攻擊與硬即時取消。單元測試/egui model 與 renderer 不冒充這些端到端驗證。
 
-- `qa/v03-search.png`：暗色搜尋，忽略大小寫/全字/循環條件、上一個選取、文件 count=4。
-- `qa/v03-navigation.png`：500 行文件跳至第 350 行，目標在視窗內，gutter 與內容行號一致，內容不 dirty。
-- `qa/v03-goto.png`：繁中行號對話框與範圍提示。
-- `qa/v03-close.png`：dirty 分頁與儲存/捨棄/取消確認。
-- `qa/v03-edits.png`：Unicode 大寫展開及複製後 STRASSE，dirty、選取、CRLF/EOF 覆蓋標記。
-
-```powershell
-.\target\release\rustpad.exe --screenshot qa/v03-search.png --qa-flow search --dark
-.\target\release\rustpad.exe --screenshot qa/v03-navigation.png --qa-flow navigation
-.\target\release\rustpad.exe --screenshot qa/v03-goto.png --qa-flow goto
-.\target\release\rustpad.exe --screenshot qa/v03-close.png --qa-flow close
-.\target\release\rustpad.exe --screenshot qa/v03-edits.png --qa-flow edits
-```
-
-這些是 app 自己的 QA fixture 經真正 renderer 輸出的 pixels，不是 mock；**沒有使用 OS 原生鍵鼠操作**。矩陣完成等級明確限定資料/egui widget 與 renderer 驗收，不能推出真人端到端通過。
-
-**NOT EXECUTED：** 原生鍵鼠、檔案對話框/剪貼簿、完整 IME、Linux 桌面 GUI、無障礙。對話框/剪貼簿仍在矩陣列部分或未驗證。Windows/Linux CI 的 fmt/clippy/test/build 終態另附交付 URL，不等同 Linux GUI。Linux binary 未散布，平台專屬授權 packaging audit 待做。
-
-測量見 [PERFORMANCE-0.3.md](PERFORMANCE-0.3.md)，用例/差異見 [DIFF-0.3.md](DIFF-0.3.md)。歷史驗收：[0.2](QA-0.2.md)、[0.1](QA-0.1.md)。
+歷史紀錄：QA-0.1.md、QA-0.2.md、QA-0.3.md。效能與體積見 PERFORMANCE-0.4.md；此處不宣稱任意 regex／大型檔案的流暢度。
