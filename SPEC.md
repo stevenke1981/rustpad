@@ -24,11 +24,13 @@ eframe/egui 0.33，glow 原生 OpenGL，Windows/Linux 共用程式，無 WebView
 
 `core.rs`：Content（正規化 LF、BOM、換行）、解編碼、原子儲存、Unicode 搜尋、history。`main.rs`：Document、UI、channel workers。每個文件用穩定 ID 保留 TextEdit 狀態。
 
-首版檔案與輸出上限 2 MiB、20,000 行、單行 16 KiB，開檔最多讀上限+1 bytes。禁止 NUL、無效 UTF-8、混合換行與單獨 CR；錯誤不更動原檔。同目錄暫存、write_all、sync_all、persist 原子替換；不先清空目標。失敗保留 dirty，儲存中修改的新內容不會誤標為已儲存。避免大檔效能宣稱。檔案 I/O 與對話框在背景執行；文字布局仍在 UI 執行。
+首版檔案與輸出上限 2 MiB、20,000 行、單行 16 KiB，開檔最多讀上限+1 bytes。禁止 NUL、無效 UTF-8、混合換行；錯誤不更動原檔。同目錄暫存、write_all、sync_all、persist 原子替換；不先清空目標。失敗保留 dirty，儲存中修改的新內容不會誤標為已儲存。避免大檔效能宣稱。檔案 I/O 與對話框在背景執行；文字布局仍在 UI 執行。
 
 已知待補：完整語法、持久偏好、完整 IME／無障礙 QA、捲動虛擬化、Linux 實機 QA。首版不適合多人同時修改同一檔案。
 
 ## 官方參考
+
+新增空白處理：可見標記由 galley glyph 座標覆畫，LayoutJob.text 保持原 bytes／char 數；不改 TextEdit 游標映射，不把符號寫入檔案。Tab 字寬透過單 Tab 字型尺度調整且固定行高，1–8 固定空格寬；暫不提供 tab stops 或視覺自動折行。內容轉換使用 Unicode scalar 範圍，驗證完整候選內容後才提交並記一筆 undo。行尾清理限定 U+0020 與 Tab；檔尾換行操作保留其他空白行。預設任何清理均不自動執行。
 
 - https://github.com/notepad-plus-plus/notepad-plus-plus
 - https://github.com/notepad-plus-plus/notepad-plus-plus/blob/master/LICENSE

@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod core;
-use core::{Content, History, Newline};
+use core::{Content, History, Newline, WhitespaceEdit};
 use eframe::egui::{
     self, Color32, FontId, Key, Modifiers,
     text::{CCursor, CCursorRange},
@@ -14,7 +14,8 @@ struct Document {
     saved: Content,
     history: History,
     cursor: usize,
-    highlight_cache: Option<(String, bool, egui::text::LayoutJob)>,
+    selected: (usize, usize),
+    highlight_cache: Option<(String, bool, usize, egui::text::LayoutJob)>,
 }
 impl Document {
     fn new(id: u64, path: Option<PathBuf>, content: Content) -> Self {
@@ -25,6 +26,7 @@ impl Document {
             content,
             history: History::default(),
             cursor: 0,
+            selected: (0, 0),
             highlight_cache: None,
         }
     }
@@ -66,6 +68,10 @@ struct App {
     match_range: Option<(u64, (usize, usize))>,
     capture: Option<PathBuf>,
     capture_frame: usize,
+    show_spaces: bool,
+    show_eol: bool,
+    tab_width: usize,
+    insert_spaces: bool,
 }
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -119,6 +125,10 @@ impl App {
             match_range: None,
             capture: None,
             capture_frame: 0,
+            show_spaces: false,
+            show_eol: false,
+            tab_width: 4,
+            insert_spaces: false,
         }
     }
     fn new_doc(&mut self) {
@@ -236,6 +246,26 @@ impl App {
             }
         }
     }
+    fn whitespace_edit(&mut self, action: WhitespaceEdit, selected: bool) {
+        let d = &mut self.docs[self.active];
+        let before = d.content.clone();
+        let range = selected.then_some(d.selected);
+        if range.is_some_and(|(start, end)| start == end) {
+            self.message = "請先選取文字".into();
+            return;
+        }
+        match core::edit_whitespace(&mut d.content, range, action) {
+            Ok(true) => {
+                d.history.record(before);
+                d.cursor = d.cursor.min(d.content.text.chars().count());
+                self.selection = Some((d.cursor, d.cursor));
+                self.match_range = None;
+                self.message = "空白處理已完成；Ctrl+Z 可復原".into();
+            }
+            Ok(false) => self.message = "內容無需變更".into(),
+            Err(error) => self.message = error,
+        }
+    }
     fn poll(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             self.busy = false;
@@ -339,6 +369,9 @@ impl eframe::App for App {
         let mut undo = false;
         let mut redo = false;
         let mut find = false;
+        let editor_focused = ctx.memory(|memory| {
+            memory.has_focus(egui::Id::new(("editor", self.docs[self.active].id)))
+        });
         ctx.input_mut(|i| {
             new = i.consume_key(Modifiers::CTRL, Key::N);
             open = i.consume_key(Modifiers::CTRL, Key::O);
@@ -352,6 +385,9 @@ impl eframe::App for App {
                 self.search = true;
             }
             find = i.consume_key(Modifiers::NONE, Key::F3);
+            if editor_focused && self.insert_spaces && i.consume_key(Modifiers::NONE, Key::Tab) {
+                i.events.push(egui::Event::Text(" ".repeat(self.tab_width)));
+            }
         });
         egui::TopBottomPanel::top("chrome").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -380,6 +416,9 @@ impl eframe::App for App {
                             egui::Visuals::light()
                         });
                     }
+                    ui.checkbox(&mut self.show_spaces, "顯示空格與 Tab（僅視覺標記）");
+                    ui.checkbox(&mut self.show_eol, "顯示真實行尾與 EOF 標記");
+                    ui.label("不自動折行；行尾標記代表檔案換行");
                 });
                 ui.menu_button("格式", |ui| {
                     let d = &mut self.docs[self.active];
@@ -387,9 +426,47 @@ impl eframe::App for App {
                     ui.checkbox(&mut d.content.bom, "UTF-8 BOM");
                     ui.selectable_value(&mut d.content.newline, Newline::Lf, "LF（Linux）");
                     ui.selectable_value(&mut d.content.newline, Newline::Crlf, "CRLF（Windows）");
+                    ui.selectable_value(&mut d.content.newline, Newline::Cr, "CR（舊式格式）");
                     if before != d.content {
                         d.history.record(before);
                     }
+                });
+                ui.menu_button("空白", |ui| {
+                    ui.label("Tab 固定字寬（內容不隨顯示設定改動）");
+                    ui.add(egui::Slider::new(&mut self.tab_width, 1..=8).text("Tab 寬度"));
+                    ui.checkbox(&mut self.insert_spaces, "按 Tab 插入等量空格");
+                    ui.separator();
+                    let selected =
+                        self.docs[self.active].selected.0 != self.docs[self.active].selected.1;
+                    if ui
+                        .add_enabled(selected, egui::Button::new("選取的 Tab → 空格"))
+                        .clicked()
+                    {
+                        self.whitespace_edit(WhitespaceEdit::TabsToSpaces(self.tab_width), true);
+                    }
+                    if ui
+                        .add_enabled(selected, egui::Button::new("選取的空格 → Tab"))
+                        .clicked()
+                    {
+                        self.whitespace_edit(WhitespaceEdit::SpacesToTabs(self.tab_width), true);
+                    }
+                    if ui.button("全文件 Tab → 空格").clicked() {
+                        self.whitespace_edit(WhitespaceEdit::TabsToSpaces(self.tab_width), false);
+                    }
+                    if ui.button("全文件空格 → Tab").clicked() {
+                        self.whitespace_edit(WhitespaceEdit::SpacesToTabs(self.tab_width), false);
+                    }
+                    ui.separator();
+                    if ui.button("清除行尾空格與 Tab").clicked() {
+                        self.whitespace_edit(WhitespaceEdit::TrimTrailing, false);
+                    }
+                    if ui.button("確保檔尾一個換行（不刪空白行）").clicked() {
+                        self.whitespace_edit(WhitespaceEdit::AddFinalNewline, false);
+                    }
+                    if ui.button("移除最後一個換行").clicked() {
+                        self.whitespace_edit(WhitespaceEdit::RemoveFinalNewline, false);
+                    }
+                    ui.label("上述內容轉換可 Ctrl+Z 復原；預設不自動清理");
                 });
                 ui.label("RustPad");
             });
@@ -505,9 +582,16 @@ impl eframe::App for App {
                 ui.label(&self.message);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!(
-                        "{} | {:?} | 行 {line} : 列 {col} | {} 字元",
+                        "{} | {} | Tab:{}{} | 末尾換行:{} | 行 {line} : 列 {col} | {} 字元",
                         if d.content.bom { "UTF-8 BOM" } else { "UTF-8" },
-                        d.content.newline,
+                        d.content.newline.label(),
+                        self.tab_width,
+                        if self.insert_spaces { "空格" } else { "Tab" },
+                        if d.content.text.ends_with('\n') {
+                            "有"
+                        } else {
+                            "無"
+                        },
                         d.content.text.chars().count()
                     ));
                 });
@@ -548,16 +632,25 @@ impl eframe::App for App {
                             );
                             ui.separator();
                             let dark = self.dark;
+                            let tab_width = self.tab_width;
                             let cache = &mut d.highlight_cache;
                             let mut layouter =
                                 move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _width: f32| {
-                                    if !cache.as_ref().is_some_and(|(s, theme, _)| {
-                                        s == text.as_str() && *theme == dark
+                                    if !cache.as_ref().is_some_and(|(s, theme, tabs, _)| {
+                                        s == text.as_str() && *theme == dark && *tabs == tab_width
                                     }) {
                                         *cache = Some((
                                             text.as_str().to_owned(),
                                             dark,
-                                            highlight(text.as_str(), dark),
+                                            tab_width,
+                                            highlight(
+                                                text.as_str(),
+                                                dark,
+                                                tab_width,
+                                                ui.fonts_mut(|fonts| {
+                                                    fonts.row_height(&FontId::monospace(15.))
+                                                }),
+                                            ),
                                         ));
                                     }
                                     ui.fonts_mut(|fonts| {
@@ -565,7 +658,7 @@ impl eframe::App for App {
                                             cache
                                                 .as_ref()
                                                 .expect("initialized layout cache")
-                                                .2
+                                                .3
                                                 .clone(),
                                         )
                                     })
@@ -582,7 +675,18 @@ impl eframe::App for App {
                                 .show(ui);
                             if let Some(range) = output.cursor_range {
                                 d.cursor = range.primary.index;
+                                d.selected = (
+                                    range.primary.index.min(range.secondary.index),
+                                    range.primary.index.max(range.secondary.index),
+                                );
                             }
+                            paint_whitespace(
+                                ui,
+                                &output,
+                                self.show_spaces,
+                                self.show_eol,
+                                d.content.newline,
+                            );
                         });
                     });
                 if before != d.content {
@@ -651,7 +755,112 @@ impl eframe::App for App {
         }
     }
 }
-fn highlight(text: &str, dark: bool) -> egui::text::LayoutJob {
+fn append_segment(
+    job: &mut egui::text::LayoutJob,
+    text: &str,
+    color: Color32,
+    tab_width: usize,
+    line_height: f32,
+) {
+    let parts: Vec<&str> = text.split('\t').collect();
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            job.append(
+                "\t",
+                0.,
+                egui::TextFormat {
+                    font_id: FontId::monospace(15. * tab_width as f32 / 4.),
+                    line_height: Some(line_height),
+                    color,
+                    ..Default::default()
+                },
+            );
+        }
+        if !part.is_empty() {
+            job.append(
+                part,
+                0.,
+                egui::TextFormat {
+                    font_id: FontId::monospace(15.),
+                    line_height: Some(line_height),
+                    color,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+}
+fn paint_whitespace(
+    ui: &egui::Ui,
+    output: &egui::text_edit::TextEditOutput,
+    spaces: bool,
+    eol: bool,
+    newline: Newline,
+) {
+    if !spaces && !eol {
+        return;
+    }
+    let color = if ui.visuals().dark_mode {
+        Color32::from_rgb(116, 139, 155)
+    } else {
+        Color32::from_rgb(130, 151, 165)
+    };
+    for row in &output.galley.rows {
+        let origin = output.galley_pos + row.pos.to_vec2();
+        let rect = egui::Rect::from_min_size(origin, row.row.size);
+        if !ui.clip_rect().intersects(rect) {
+            continue;
+        }
+        let y = origin.y + row.row.size.y * 0.5;
+        if spaces {
+            for glyph in &row.row.glyphs {
+                let x = origin.x + glyph.pos.x;
+                match glyph.chr {
+                    ' ' => {
+                        ui.painter().circle_filled(
+                            egui::pos2(x + glyph.advance_width * 0.5, y),
+                            1.,
+                            color,
+                        );
+                    }
+                    '\t' => {
+                        let left = x + 2.;
+                        let right = x + glyph.advance_width - 2.;
+                        if right > left {
+                            let stroke = egui::Stroke::new(1_f32, color);
+                            ui.painter()
+                                .line_segment([egui::pos2(left, y), egui::pos2(right, y)], stroke);
+                            ui.painter().line_segment(
+                                [egui::pos2(right - 3., y - 3.), egui::pos2(right, y)],
+                                stroke,
+                            );
+                            ui.painter().line_segment(
+                                [egui::pos2(right - 3., y + 3.), egui::pos2(right, y)],
+                                stroke,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if eol {
+            let label = if row.row.ends_with_newline {
+                newline.label()
+            } else {
+                "EOF"
+            };
+            ui.painter().text(
+                egui::pos2(origin.x + row.row.size.x + 3., y),
+                egui::Align2::LEFT_CENTER,
+                label,
+                FontId::monospace(9.),
+                color,
+            );
+        }
+    }
+}
+fn highlight(text: &str, dark: bool, tab_width: usize, line_height: f32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     let normal = if dark {
         Color32::from_rgb(220, 224, 232)
@@ -664,15 +873,7 @@ fn highlight(text: &str, dark: bool) -> egui::text::LayoutJob {
         Color32::from_rgb(30, 75, 175)
     };
     if text.len() > 256 * 1024 {
-        job.append(
-            text,
-            0.,
-            egui::TextFormat {
-                font_id: FontId::monospace(15.),
-                color: normal,
-                ..Default::default()
-            },
-        );
+        append_segment(&mut job, text, normal, tab_width, line_height);
         job.wrap.max_width = f32::INFINITY;
         return job;
     }
@@ -689,15 +890,7 @@ fn highlight(text: &str, dark: bool) -> egui::text::LayoutJob {
         } else {
             normal
         };
-        job.append(
-            segment,
-            0.,
-            egui::TextFormat {
-                font_id: FontId::monospace(15.),
-                color,
-                ..Default::default()
-            },
-        );
+        append_segment(&mut job, segment, color, tab_width, line_height);
     }
     job.wrap.max_width = f32::INFINITY;
     job
@@ -726,6 +919,13 @@ fn main() -> eframe::Result {
                 app.search = true;
                 app.query = "世界".into();
                 app.replacement = "Rust".into();
+                if args.iter().any(|s| s == "--whitespace") {
+                    app.show_spaces = true;
+                    app.show_eol = true;
+                    app.docs[0].content.text="// Windows CRLF / Linux LF（內容格式，不由作業系統偷改）\nfn main() {\n\tlet greeting = \"你好，世界 🙂\";  \n\tprintln!(\"{greeting}\");\t\n}\n \t\n// · = 空格；箭頭 = Tab；標記不會寫入檔案".into();
+                    app.docs[0].content.newline = Newline::Crlf;
+                    app.docs[0].saved = app.docs[0].content.clone();
+                }
                 if args.iter().any(|s| s == "--dark") {
                     app.dark = true;
                     cc.egui_ctx.set_visuals(egui::Visuals::dark());
@@ -760,6 +960,10 @@ mod app_tests {
             match_range: None,
             capture: None,
             capture_frame: 0,
+            show_spaces: false,
+            show_eol: false,
+            tab_width: 4,
+            insert_spaces: false,
         }
     }
     #[test]
@@ -841,5 +1045,40 @@ mod app_tests {
         a.docs[1].content.text = "abc".into();
         a.replace_one();
         assert_eq!(a.docs[1].content.text, "abc");
+    }
+    #[test]
+    fn tab_layout_keeps_text_and_cursor_mapping() {
+        let ctx = egui::Context::default();
+        let text = "a\t🙂\n  b";
+        let mut dimensions = None;
+        let _ = ctx.run(Default::default(), |ctx| {
+            dimensions = Some(ctx.fonts_mut(|fonts| {
+                let height = fonts.row_height(&FontId::monospace(15.));
+                let small = fonts.layout_job(highlight(text, false, 2, height));
+                let large = fonts.layout_job(highlight(text, false, 8, height));
+                assert_eq!(small.job.text, text);
+                assert_eq!(large.job.text, text);
+                assert_eq!(small.rows.len(), large.rows.len());
+                assert_eq!(small.size().y, large.size().y);
+                (
+                    small.pos_from_cursor(CCursor::new(2)).min.x,
+                    large.pos_from_cursor(CCursor::new(2)).min.x,
+                )
+            }));
+        });
+        let (small, large) = dimensions.unwrap();
+        assert!(large > small);
+    }
+    #[test]
+    fn whitespace_ui_action_records_dirty_and_undo() {
+        let mut a = app();
+        a.docs[0].content.text = "甲\t \n".into();
+        a.docs[0].saved = a.docs[0].content.clone();
+        a.whitespace_edit(WhitespaceEdit::TrimTrailing, false);
+        assert!(a.docs[0].dirty());
+        assert_eq!(a.docs[0].content.text, "甲\n");
+        let d = &mut a.docs[0];
+        d.history.undo(&mut d.content);
+        assert!(!d.dirty());
     }
 }

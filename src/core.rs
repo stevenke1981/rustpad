@@ -21,6 +21,16 @@ pub fn validate_text(text: &str) -> Result<(), String> {
 pub enum Newline {
     Lf,
     Crlf,
+    Cr,
+}
+impl Newline {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Lf => "LF",
+            Self::Crlf => "CRLF",
+            Self::Cr => "CR",
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Content {
@@ -50,25 +60,33 @@ pub fn decode(bytes: &[u8]) -> Result<Content, String> {
     let crlf = text.matches("\r\n").count();
     let lf = text.matches('\n').count();
     let cr = text.matches('\r').count();
-    if cr != crlf || (crlf > 0 && lf != crlf) {
-        return Err("混合換行或單獨 CR 暫不支援；原檔未變更".into());
+    if (crlf > 0 && (cr != crlf || lf != crlf)) || (crlf == 0 && cr > 0 && lf > 0) {
+        return Err("偵測到混合 CRLF／LF／CR；拒絕開啟以避免靜默改寫，原檔未變更".into());
     }
-    validate_text(text)?;
-    Ok(Content {
-        text: text.replace("\r\n", "\n"),
-        bom,
-        newline: if crlf > 0 { Newline::Crlf } else { Newline::Lf },
-    })
+    let newline = if crlf > 0 {
+        Newline::Crlf
+    } else if cr > 0 {
+        Newline::Cr
+    } else {
+        Newline::Lf
+    };
+    let text = match newline {
+        Newline::Crlf => text.replace("\r\n", "\n"),
+        Newline::Cr => text.replace('\r', "\n"),
+        Newline::Lf => text.to_owned(),
+    };
+    validate_text(&text)?;
+    Ok(Content { text, bom, newline })
 }
 pub fn encode(content: &Content) -> Result<Vec<u8>, String> {
     validate_text(&content.text)?;
     if content.text.contains('\r') || content.text.contains('\0') {
         return Err("內容包含不支援的 CR 或 NUL".into());
     }
-    let text = if content.newline == Newline::Crlf {
-        content.text.replace('\n', "\r\n")
-    } else {
-        content.text.clone()
+    let text = match content.newline {
+        Newline::Crlf => content.text.replace('\n', "\r\n"),
+        Newline::Cr => content.text.replace('\n', "\r"),
+        Newline::Lf => content.text.clone(),
     };
     let mut bytes = if content.bom {
         vec![0xef, 0xbb, 0xbf]
@@ -169,6 +187,62 @@ impl History {
 pub fn may_close(current: &Content, saved: &Content, discard: bool) -> bool {
     current == saved || discard
 }
+#[derive(Clone, Copy)]
+pub enum WhitespaceEdit {
+    TabsToSpaces(usize),
+    SpacesToTabs(usize),
+    TrimTrailing,
+    AddFinalNewline,
+    RemoveFinalNewline,
+}
+pub fn edit_whitespace(
+    content: &mut Content,
+    range: Option<(usize, usize)>,
+    action: WhitespaceEdit,
+) -> Result<bool, String> {
+    let mut candidate = content.clone();
+    let (start, end) = range.unwrap_or((0, content.text.chars().count()));
+    if start > end || end > content.text.chars().count() {
+        return Err("無效選取範圍".into());
+    }
+    let original: String = content.text.chars().skip(start).take(end - start).collect();
+    let changed = match action {
+        WhitespaceEdit::TabsToSpaces(width) => {
+            if !(1..=8).contains(&width) {
+                return Err("Tab 寬度需介於 1 至 8".into());
+            }
+            original.replace('\t', &" ".repeat(width))
+        }
+        WhitespaceEdit::SpacesToTabs(width) => {
+            if !(1..=8).contains(&width) {
+                return Err("Tab 寬度需介於 1 至 8".into());
+            }
+            original.replace(&" ".repeat(width), "\t")
+        }
+        WhitespaceEdit::TrimTrailing => original
+            .split('\n')
+            .map(|line| line.trim_end_matches([' ', '\t']))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        WhitespaceEdit::AddFinalNewline => {
+            if original.ends_with('\n') {
+                original
+            } else {
+                original + "\n"
+            }
+        }
+        WhitespaceEdit::RemoveFinalNewline => {
+            original.strip_suffix('\n').unwrap_or(&original).to_owned()
+        }
+    };
+    replace_range(&mut candidate.text, (start, end), &changed);
+    validate_text(&candidate.text)?;
+    let changed = candidate != *content;
+    if changed {
+        *content = candidate;
+    }
+    Ok(changed)
+}
 
 #[cfg(test)]
 mod tests {
@@ -186,7 +260,7 @@ mod tests {
     }
     #[test]
     fn rejects_unsafe_input() {
-        for bytes in [b"\xff".as_slice(), b"a\r\nb\n", b"a\rb", b"a\0b"] {
+        for bytes in [b"\xff".as_slice(), b"a\r\nb\n", b"a\rb\n", b"a\0b"] {
             assert!(decode(bytes).is_err());
         }
         assert!(decode(&vec![b'a'; MAX_BYTES + 1]).is_err());
@@ -289,5 +363,78 @@ mod tests {
             let loaded = decode(&bytes).unwrap();
             assert_eq!(encode(&loaded).unwrap(), encode(&original).unwrap());
         }
+    }
+    #[test]
+    fn legacy_and_platform_eol_roundtrip() {
+        for bytes in [b"a\rb\r".as_slice(), b"\xef\xbb\xbfa\r\nb", b"a\nb\n"] {
+            let c = decode(bytes).unwrap();
+            assert_eq!(encode(&c).unwrap(), bytes);
+        }
+        let mut c = decode(b"a\r\nb\r\n").unwrap();
+        let saved = c.clone();
+        let mut h = History::default();
+        h.record(c.clone());
+        c.newline = Newline::Lf;
+        assert_eq!(encode(&c).unwrap(), b"a\nb\n");
+        h.undo(&mut c);
+        assert_eq!(c, saved);
+    }
+    #[test]
+    fn whitespace_preserves_unicode_blank_lines_and_bom() {
+        let mut c = Content {
+            text: "甲\t  \u{3000}\u{a0} \t\n \t\n末尾".into(),
+            bom: true,
+            newline: Newline::Crlf,
+        };
+        let mut h = History::default();
+        let before = c.clone();
+        h.record(before.clone());
+        edit_whitespace(&mut c, None, WhitespaceEdit::TrimTrailing).unwrap();
+        assert_eq!(c.text, "甲\t  \u{3000}\u{a0}\n\n末尾");
+        assert!(c.bom);
+        assert_eq!(c.newline, Newline::Crlf);
+        h.undo(&mut c);
+        assert_eq!(c, before);
+    }
+    #[test]
+    fn selection_tab_conversion_and_undo() {
+        let mut c = Content {
+            text: "前🙂\t後\t".into(),
+            ..Default::default()
+        };
+        let before = c.clone();
+        let mut h = History::default();
+        h.record(c.clone());
+        edit_whitespace(&mut c, Some((2, 3)), WhitespaceEdit::TabsToSpaces(4)).unwrap();
+        assert_eq!(c.text, "前🙂    後\t");
+        edit_whitespace(&mut c, Some((2, 6)), WhitespaceEdit::SpacesToTabs(4)).unwrap();
+        assert_eq!(c, before);
+        h.undo(&mut c);
+        assert_eq!(c, before);
+    }
+    #[test]
+    fn final_newline_keeps_blank_lines() {
+        let mut c = Content {
+            text: "a\n\n".into(),
+            ..Default::default()
+        };
+        assert!(!edit_whitespace(&mut c, None, WhitespaceEdit::AddFinalNewline).unwrap());
+        edit_whitespace(&mut c, None, WhitespaceEdit::RemoveFinalNewline).unwrap();
+        assert_eq!(c.text, "a\n");
+        edit_whitespace(&mut c, None, WhitespaceEdit::RemoveFinalNewline).unwrap();
+        assert_eq!(c.text, "a");
+        edit_whitespace(&mut c, None, WhitespaceEdit::AddFinalNewline).unwrap();
+        assert_eq!(c.text, "a\n");
+    }
+    #[test]
+    fn whitespace_conversion_limits_no_partial_mutation() {
+        let mut c = Content {
+            text: "\t".repeat(4096),
+            ..Default::default()
+        };
+        let before = c.clone();
+        assert!(edit_whitespace(&mut c, None, WhitespaceEdit::TabsToSpaces(8)).is_err());
+        assert_eq!(c, before);
+        assert!(edit_whitespace(&mut c, None, WhitespaceEdit::SpacesToTabs(0)).is_err());
     }
 }
