@@ -4,3 +4,8 @@
 /qa/*.log
 
 /qa/performance-v04/*/startup-*.png
+
+/qa/performance-v05/*/startup-*.png
+
+/qa/performance-v05/
+/qa/performance-v05-final/*/startup-*.png

@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod actions;
+mod bookmarks;
 mod core;
 mod filesearch;
+mod lines;
 mod pattern;
 mod perf;
 mod syntax;
@@ -31,6 +33,7 @@ struct Document {
     selected: (usize, usize),
     highlight_cache: syntax::LayoutCache,
     language: Option<syntax::Language>,
+    bookmarks: bookmarks::Bookmarks,
 }
 impl Document {
     fn new(id: u64, path: Option<PathBuf>, content: Content) -> Self {
@@ -44,6 +47,7 @@ impl Document {
             selected: (0, 0),
             highlight_cache: Default::default(),
             language: None,
+            bookmarks: Default::default(),
         }
     }
     fn dirty(&self) -> bool {
@@ -80,6 +84,8 @@ enum FilesEvent {
     Done(Result<filesearch::Report, String>),
 }
 struct App {
+    split_width: usize,
+    about_open: bool,
     files_tx: mpsc::Sender<FilesEvent>,
     files_rx: mpsc::Receiver<FilesEvent>,
     files_open: bool,
@@ -120,6 +126,62 @@ struct App {
     repaint: egui::Context,
 }
 impl App {
+    fn line_transform(&mut self, width: Option<usize>) {
+        let d = &mut self.docs[self.active];
+        d.bookmarks.sync(&d.content.text);
+        let before = d.content.clone();
+        match lines::transform(&mut d.content, d.selected, width) {
+            Ok(range) => {
+                if before != d.content {
+                    d.history.record(before);
+                }
+                d.bookmarks.sync(&d.content.text);
+                d.cursor = range.1;
+                d.selected = range;
+                self.selection = Some(range);
+                self.match_range = None;
+                self.message = "行處理完成；Ctrl+Z 可復原".into();
+            }
+            Err(error) => self.message = error,
+        }
+    }
+    fn bookmark_action(&mut self, action: i8) {
+        let d = &mut self.docs[self.active];
+        d.bookmarks.sync(&d.content.text);
+        let current = d
+            .content
+            .text
+            .chars()
+            .take(d.cursor)
+            .filter(|ch| *ch == '\n')
+            .count();
+        match action {
+            0 => {
+                d.bookmarks.toggle(&d.content.text, current);
+                self.message = format!(
+                    "第 {} 行書籤已切換；共 {} 個",
+                    current + 1,
+                    d.bookmarks.lines.len()
+                );
+            }
+            2 => {
+                d.bookmarks.clear();
+                self.message = "已清除目前分頁書籤".into();
+            }
+            _ => {
+                if let Some(line) = d.bookmarks.next(current, action < 0) {
+                    let index = actions::goto_line(&d.content.text, line + 1).unwrap_or(0);
+                    d.cursor = index;
+                    d.selected = (index, index);
+                    self.selection = Some((index, index));
+                    self.match_range = None;
+                    self.message = format!("已跳至第 {} 行書籤", line + 1);
+                } else {
+                    self.message = "目前分頁沒有書籤".into();
+                }
+            }
+        }
+    }
     fn choose_root(&mut self) {
         if self.files_cancel.is_some() {
             return;
@@ -260,6 +322,8 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let (files_tx, files_rx) = mpsc::channel();
         Self {
+            split_width: 80,
+            about_open: false,
             files_tx,
             files_rx,
             files_open: false,
@@ -842,6 +906,9 @@ impl eframe::App for App {
             }
         }
         self.poll();
+        for d in &mut self.docs {
+            d.bookmarks.sync(&d.content.text);
+        }
         self.syntax.poll();
         self.syntax
             .retain(&self.docs.iter().map(|doc| doc.id).collect::<Vec<_>>());
@@ -866,6 +933,8 @@ impl eframe::App for App {
         let mut previous = false;
         let mut edit_action = None;
         let mut goto_requested = false;
+        let mut bookmark_action = None;
+        let mut line_action = None;
         let editor_focused = ctx.memory(|memory| {
             memory.has_focus(egui::Id::new(("editor", self.docs[self.active].id)))
         });
@@ -886,6 +955,21 @@ impl eframe::App for App {
                 goto_requested = true;
             }
             if editor_focused {
+                if i.consume_key(Modifiers::CTRL, Key::F2) {
+                    bookmark_action = Some(0);
+                }
+                if i.consume_key(Modifiers::SHIFT, Key::F2) {
+                    bookmark_action = Some(-1);
+                }
+                if i.consume_key(Modifiers::NONE, Key::F2) {
+                    bookmark_action = Some(1);
+                }
+                if i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::J) {
+                    line_action = Some(Some(self.split_width));
+                }
+                if i.consume_key(Modifiers::CTRL, Key::J) {
+                    line_action = Some(None);
+                }
                 if i.consume_key(Modifiers::CTRL, Key::D) {
                     edit_action = Some(actions::Edit::DuplicateLine);
                 }
@@ -917,6 +1001,17 @@ impl eframe::App for App {
                     close |= ui.button("關閉分頁    Ctrl+W").clicked();
                 });
                 ui.menu_button("編輯", |ui| {
+                    if ui.button("合併選取行    Ctrl+J").clicked() {
+                        line_action = Some(None);
+                    }
+                    if ui.button("分割選取行／目前行    Ctrl+Shift+J").clicked() {
+                        line_action = Some(Some(self.split_width));
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label("分割寬度（字素）");
+                        ui.add(egui::DragValue::new(&mut self.split_width).range(1..=1000));
+                    });
+                    ui.separator();
                     if ui.button("複製目前行    Ctrl+D").clicked() {
                         edit_action = Some(actions::Edit::DuplicateLine);
                     }
@@ -935,6 +1030,19 @@ impl eframe::App for App {
                     redo |= ui.button("重做    Ctrl+Y").clicked();
                 });
                 ui.menu_button("搜尋", |ui| {
+                    if ui.button("切換行書籤    Ctrl+F2").clicked() {
+                        bookmark_action = Some(0);
+                    }
+                    if ui.button("下一個書籤    F2").clicked() {
+                        bookmark_action = Some(1);
+                    }
+                    if ui.button("上一個書籤    Shift+F2").clicked() {
+                        bookmark_action = Some(-1);
+                    }
+                    if ui.button("清除目前分頁書籤").clicked() {
+                        bookmark_action = Some(2);
+                    }
+                    ui.separator();
                     if ui.button("多檔搜尋（唯讀）…").clicked() {
                         self.files_open = true;
                         self.search = true;
@@ -1017,7 +1125,9 @@ impl eframe::App for App {
                         ui.selectable_value(&mut doc.language, Some(language), language.label());
                     }
                 });
-                ui.label("RustPad");
+                if ui.button("墨頁 InkPage").clicked() {
+                    self.about_open = true;
+                }
             });
             ui.horizontal(|ui| {
                 new |= ui.small_button("＋ 新建").clicked();
@@ -1119,6 +1229,12 @@ impl eframe::App for App {
         if goto_requested {
             ctx.memory_mut(|m| m.request_focus(egui::Id::new("goto-line")));
         }
+        if let Some(action) = bookmark_action {
+            self.bookmark_action(action);
+        }
+        if let Some(width) = line_action {
+            self.line_transform(width);
+        }
         if new {
             self.new_doc()
         }
@@ -1214,6 +1330,7 @@ impl eframe::App for App {
             )
             .show(ctx, |ui| {
                 let d = &mut self.docs[self.active];
+                d.bookmarks.sync(&d.content.text);
                 let before =
                     (!ctx.input(|input| input.events.is_empty())).then(|| d.content.clone());
                 let id = egui::Id::new(("editor", d.id));
@@ -1233,7 +1350,18 @@ impl eframe::App for App {
                     .show(ui, |ui| {
                         ui.horizontal_top(|ui| {
                             let count = d.content.text.matches('\n').count() + 1;
-                            let nums = (1..=count).map(|n| format!("{n:>4}\n")).collect::<String>();
+                            let nums = (1..=count)
+                                .map(|n| {
+                                    format!(
+                                        "{}{n:>4}\n",
+                                        if d.bookmarks.lines.contains(&(n - 1)) {
+                                            "*"
+                                        } else {
+                                            " "
+                                        }
+                                    )
+                                })
+                                .collect::<String>();
                             ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(nums.trim_end())
@@ -1317,7 +1445,21 @@ impl eframe::App for App {
                     }
                     self.match_range = None;
                 }
+                d.bookmarks.sync(&d.content.text);
             });
+        if self.about_open {
+            egui::Window::new("關於墨頁 InkPage")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
+                .open(&mut self.about_open)
+                .show(ctx, |ui| {
+                    ui.strong("墨頁 InkPage 0.5");
+                    ui.label("緊湊的桌面文字編輯器 · Windows / Linux");
+                    ui.label("原創程式 MIT；致敬傳統編輯器工作流程。");
+                    ui.label("技術與相依授權見 README / THIRD_PARTY_LICENSES.md。");
+                });
+        }
         if let Some(id) = self.pending_close {
             egui::Window::new("尚有未儲存變更")
                 .collapsible(false)
@@ -1353,7 +1495,7 @@ impl eframe::App for App {
                 });
         }
         if self.exit {
-            egui::Window::new("結束 RustPad")
+            egui::Window::new("結束墨頁 InkPage")
                 .collapsible(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0., 0.])
                 .show(ctx, |ui| {
@@ -1460,7 +1602,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     eframe::run_native(
-        "RustPad — 文字編輯器",
+        "墨頁 InkPage — 文字編輯器",
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1080., 720.])
@@ -1475,7 +1617,7 @@ fn main() -> eframe::Result {
             {
                 app.capture = Some(PathBuf::from(path));
                 app.docs[0].path = Some(PathBuf::from("welcome.rs"));
-                app.docs[0].content.text="// RustPad — 繁體中文與 Unicode 測試\nfn main() {\n    let greeting = \"你好，世界 🙂\";\n    println!(\"{greeting}\");\n}\n\n// Ctrl+F 搜尋 · Ctrl+S 儲存\n".into();
+                app.docs[0].content.text="// 墨頁 InkPage — 繁體中文與 Unicode 測試\nfn main() {\n    let greeting = \"你好，世界 🙂\";\n    println!(\"{greeting}\");\n}\n\n// Ctrl+F 搜尋 · Ctrl+S 儲存\n".into();
                 app.docs[0].saved = app.docs[0].content.clone();
                 app.new_doc();
                 app.active = 0;
@@ -1503,7 +1645,7 @@ fn main() -> eframe::Result {
                         ),
                         "json" => (
                             "settings.json",
-                            "{\n  \"name\": \"RustPad — 中文 🙂\",\n  \"version\": 0.2,\n  \"enabled\": true,\n  \"languages\": [\"Rust\", \"Python\", \"JSON\"],\n  \"empty\": null\n}\n",
+                            "{\n  \"name\": \"墨頁 InkPage — 中文 🙂\",\n  \"version\": 0.2,\n  \"enabled\": true,\n  \"languages\": [\"Rust\", \"Python\", \"JSON\"],\n  \"empty\": null\n}\n",
                         ),
                         _ => (
                             "welcome.rs",
@@ -1532,6 +1674,55 @@ fn main() -> eframe::Result {
             {
                 app.docs[0].path = Some(PathBuf::from("qa-demo.txt"));
                 match flow.as_str() {
+                    "bookmarks" => {
+                        app.docs[0].content.text = (1..=600)
+                            .map(|n| format!("第 {n} 行 — 中文🙂 書籤導航\n"))
+                            .collect();
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        for line in [3, 350] {
+                            app.docs[0].cursor =
+                                actions::goto_line(&app.docs[0].content.text, line).unwrap();
+                            app.bookmark_action(0);
+                        }
+                        app.docs[0]
+                            .content
+                            .text
+                            .insert_str(0, "新增首行：原行書籤向下移動\n");
+                        app.docs[0].cursor = 0;
+                        app.bookmark_action(-1);
+                        app.search = false;
+                    }
+                    "lines-join" => {
+                        app.docs[0].content = Content {
+                            text: "外\n中文🙂\n二\n尾（保留選取外）".into(),
+                            bom: true,
+                            newline: Newline::Crlf,
+                        };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.docs[0].selected = (2, 8);
+                        app.line_transform(None);
+                        app.search = false;
+                        app.show_eol = true;
+                    }
+                    "lines-split" => {
+                        app.docs[0].content = Content {
+                            text: "外（保留選取外）\ne\u{301}🇹🇼👩‍👩‍👧‍👦中🙂\n\n尾".into(),
+                            bom: true,
+                            newline: Newline::Crlf,
+                        };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        let start = actions::goto_line(&app.docs[0].content.text, 2).unwrap();
+                        let end = app.docs[0].content.text.chars().count() - 1;
+                        app.docs[0].selected = (start, end);
+                        app.split_width = 2;
+                        app.line_transform(Some(2));
+                        app.search = false;
+                        app.show_eol = true;
+                    }
+                    "about" => {
+                        app.about_open = true;
+                        app.search = false;
+                    }
                     "regex" | "regex-error" => {
                         app.docs[0].content.text =
                             "中文 12\n中文 34\n🙂 保留 Unicode、BOM 與 CRLF\n".into();
@@ -1608,6 +1799,74 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod app_tests {
     use super::*;
+    #[test]
+    fn bookmarks_are_tab_local_not_dirty_and_shift_through_edit_undo() {
+        let mut a = app();
+        a.docs[0].content.text = "中文🙂\n二\n三".into();
+        a.docs[0].saved = a.docs[0].content.clone();
+        a.docs[0].cursor = 4;
+        a.bookmark_action(0);
+        assert!(!a.docs[0].dirty());
+        assert_eq!(a.docs[0].bookmarks.lines.len(), 1);
+        a.docs[0].cursor = 0;
+        a.bookmark_action(1);
+        assert_eq!(a.docs[0].cursor, 4);
+        let before = a.docs[0].content.clone();
+        a.docs[0].history.record(before.clone());
+        a.docs[0].content.text.insert_str(0, "前\n");
+        a.bookmark_action(1);
+        assert!(a.docs[0].bookmarks.lines.contains(&2));
+        assert_eq!(a.docs[0].cursor, 6);
+        {
+            let d = &mut a.docs[0];
+            d.history.undo(&mut d.content);
+        }
+        a.bookmark_action(1);
+        assert!(a.docs[0].bookmarks.lines.contains(&1));
+        assert_eq!(a.docs[0].content, before);
+        a.new_doc();
+        a.bookmark_action(1);
+        assert!(a.message.contains("沒有書籤"));
+        assert!(a.docs[1].bookmarks.lines.is_empty());
+        a.activate(0);
+        a.bookmark_action(2);
+        assert!(a.docs[0].bookmarks.lines.is_empty());
+        assert!(!a.docs[0].dirty());
+    }
+    #[test]
+    fn line_transforms_are_one_undo_transaction_and_failed_actions_keep_selection() {
+        let mut a = app();
+        a.docs[0].content = Content {
+            text: "外\n中文🙂\n二\n尾".into(),
+            bom: true,
+            newline: Newline::Crlf,
+        };
+        a.docs[0].saved = a.docs[0].content.clone();
+        a.docs[0].selected = (2, 8);
+        a.line_transform(None);
+        assert_eq!(a.docs[0].content.text, "外\n中文🙂 二\n尾");
+        assert!(a.docs[0].dirty());
+        assert_eq!(a.selection, Some((2, 8)));
+        {
+            let d = &mut a.docs[0];
+            d.history.undo(&mut d.content);
+            assert_eq!(d.content, d.saved);
+            d.history.redo(&mut d.content);
+            assert_eq!(d.content.text, "外\n中文🙂 二\n尾");
+        }
+        a.line_transform(Some(2));
+        assert_eq!(a.docs[0].content.text, "外\n中文\n🙂 \n二\n尾");
+        {
+            let d = &mut a.docs[0];
+            d.history.undo(&mut d.content);
+            assert_eq!(d.content.text, "外\n中文🙂 二\n尾");
+        }
+        let before = a.docs[0].content.clone();
+        let range = a.docs[0].selected;
+        a.line_transform(Some(0));
+        assert_eq!(a.docs[0].content, before);
+        assert_eq!(a.docs[0].selected, range);
+    }
     fn wait_idle(a: &mut App) {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while a.busy || a.files_cancel.is_some() {
@@ -1876,6 +2135,8 @@ mod app_tests {
         let (tx, rx) = mpsc::channel();
         let (files_tx, files_rx) = mpsc::channel();
         App {
+            split_width: 80,
+            about_open: false,
             files_tx,
             files_rx,
             files_open: false,

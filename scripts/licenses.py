@@ -9,7 +9,7 @@ root = pathlib.Path(__file__).resolve().parent.parent
 metadata = json.loads((root / "metadata-windows.json").read_text(encoding="utf-8-sig"))
 resolved = {node["id"] for node in metadata["resolve"]["nodes"]}
 packages = sorted((p for p in metadata["packages"] if p["id"] in resolved and p["source"]), key=lambda p: p["name"])
-rows = ["# Third-party licenses (Windows dependency graph)", "", "Generated from locked Cargo metadata. Original RustPad source: MIT.", "Embedded syntax acknowledgements: [SYNTAXES.md](licenses/SYNTAXES.md). Original color palettes; no upstream theme data embedded.", "", "| Package | Version | SPDX license |", "|---|---|---|"]
+rows = ["# Third-party licenses (Windows dependency graph)", "", "Generated from locked Cargo metadata. Original InkPage source: MIT.", "Embedded syntax acknowledgements: [SYNTAXES.md](licenses/SYNTAXES.md). Original color palettes; no upstream theme data embedded.", "", "| Package | Version | SPDX license |", "|---|---|---|"]
 for package in packages:
     rows.append(f'| {package["name"]} | {package["version"]} | {package["license"] or "SEE PACKAGE"} |')
     source = pathlib.Path(package["manifest_path"]).parent

@@ -1,22 +1,24 @@
-# RustPad 0.4 驗證
+# 墨頁 InkPage 0.5 驗證
 
-Windows 11 / Rust 1.99.0 MSVC，cargo -j1。fmt、clippy --all-targets -D warnings、locked test、release build；Windows 54 tests，Ubuntu CI 另有 Unix symlink loop test（55 tests）。CI 終態以本次提交的 GitHub Actions 為準。
+Windows NT 10.0.22631 / Rust 1.99.0 MSVC / cargo -j1。fmt --check、clippy --all-targets -D warnings、locked tests、release build。Windows 61 tests；Ubuntu CI 另有 Unix symlink loop test，預期 62；最終通過數以本次 GitHub Actions 終態為準。
 
-RED → GREEN：先放 regex stub，Unicode/capture 與零長度批次 2 tests 失敗；實作後通過。再放 filesearch stub，BOM/CRLF/binary/root 與取消 2 tests 失敗；實作後通過。新增 app 零長度連續下一個 regression，實際停留 (0,0) 而預期 (1,1) 失敗；修正前進一個 scalar，通過，capture 展開後游標按實際長度定位。另有範圍計算 fixture 原預期 (9,13)，手算修正 normalized scalar (8,12)；不是產品 bug。
+RED → GREEN：bookmarks stub 的導航循環與修改後映射兩個 tests 失敗；lines stub 的選取合併與 Unicode 字素分割兩個 tests 失敗；最小實作後通過。上限/非法條件 test 初始 stub 已返回 Err，沒有宣稱這項曾 RED。另有 app 分頁隔離/非 dirty/Unicode 游標/編輯-undo 書籤移動，以及行命令一筆 undo/redo/失敗選取不變，這兩項是在實作後補回歸。
 
-其餘補充 regression 在功能實作後加入：replacement template 與官方 regex replace_all 對照、18,000 行搜尋、編譯／匹配／輸出上限原文不變、非法語法 UI 可見、background 多檔結果與磁碟變更拒絕定位、dirty tab 不覆寫、結果上限／大檔略過。既有 42 tests 保留。Linux symlink 循環／外根連結在 Ubuntu CI 執行；Windows junction 實體 fixture 未執行，只有 Windows reparse skip 程式分支。
+既有 54 Windows / 55 Unix tests 不刪除，包含中文/BOM/CRLF/LF、儲存失敗不毀原檔、regex captures/零長度/18,000 行、stale worker、binary/symlink/多檔定位與 dirty 分頁保护。本輪新增 7 tests。字素 case 包含 e+combining acute、🇹🇼、ZWJ family；不以 glyph 外觀判斷 bytes 是否安全。
 
-## 真正 Windows framebuffer
+## 真正 Windows renderer
 
-四張 PNG 是 release executable 透過 eframe/glow Screenshot 事件讀回的原生 renderer pixels，明確 opt-in QA fixtures 後自動退出：
+release exe 的 eframe/glow framebuffer Screenshot 事件，opt-in fixtures 後自動退出；逐張檢視，非 HTML、非純 selftest：
 
-- qa/v04-regex.png：群組替換成 `12:中文 $`、`34:中文 $`，dirty、UTF-8 BOM/CRLF 保留。
-- qa/v04-regex-error.png：非法 `(` 明示 parse error，內容未變。
-- qa/v04-files.png：3 檔候選、1 binary 略過、4 處磁碟命中，底部根/條件/路徑/行號/預覽。
-- qa/v04-file-navigation.png：背景重讀後開啟 example.rs、選取第 2 行 Rust，保留既有分頁。
+- qa/v05-bookmarks.png：600 行 fixture 的原第 350 行，在前面插入一行后移到第 351 行，gutter `*`、行號及状态對應。
+- qa/v05-lines-join.png：選取中文/emoji 行合併，外側行不變、UTF-8 BOM/CRLF、dirty 狀態。
+- qa/v05-lines-split.png：2 字素寬度分割，資料中的 combining/flag/family 字素完整，保留空白行/外側行/BOM/CRLF。
+- qa/v05-about.png：關於視窗標題／工具列產品名與關於 0.5 畫面。
 
-重現：`rustpad.exe --screenshot <output.png> --qa-flow regex|regex-error|files|file-navigation --qa-root <qa/v04-fixtures absolute path> --dark`。後兩者才需要 root；QA 根必須是自有 fixtures。畫面已逐張檢視，檔案面板使用相對路徑避免把本機完整路徑放進公開截圖。截圖不代表真人輸入或系統事件已驗證。
+重現：`rustpad.exe --screenshot <output.png> --qa-flow bookmarks|lines-join|lines-split|about --dark`；可攜版改以 InkPage.exe 執行；about 另以亮色檢查。自動 QA model 動作不等於真人按鍵操作。
 
-**NOT EXECUTED**：原生键鼠/剪貼簿/系統選檔與資料夾對話框、完整繁中 IME、Linux desktop GUI、Windows junction fixture、並行 symlink 攻擊與硬即時取消。單元測試/egui model 與 renderer 不冒充這些端到端驗證。
+**NOT EXECUTED**：原生鍵鼠/Clipboard/系統檔案與資料夾對話框、完整繁中 IME、Linux desktop GUI、Windows junction 實體 fixture、硬即時取消／並行 symlink 攻擊、商標或全面同名清查。Linux build/test 不冒充 Linux GUI。已清除書籤不由內容 undo 恢復；無持久書籤／session restore；摺疊仍缺少。
 
-歷史紀錄：QA-0.1.md、QA-0.2.md、QA-0.3.md。效能與體積見 PERFORMANCE-0.4.md；此處不宣稱任意 regex／大型檔案的流暢度。
+歷史：QA-0.1..0.4.md；效能與大小見 PERFORMANCE-0.5.md。完成定義仍為既定 data/widget/renderer 等級；固定核心矩陣 25/36，非全產品比例。
+
+已觀察視覺限制：目前 OS 字型／egui renderer 將 ZWJ family 顯示成多個圖形；byte/grapheme 測試確認未插入換行於群集內，但不宣稱完整 emoji shaping。原生 OS 標題列不在 framebuffer 截圖中，名稱設定由 eframe run_native 參數確認。

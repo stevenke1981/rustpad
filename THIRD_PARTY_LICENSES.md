@@ -1,6 +1,6 @@
 # Third-party licenses (Windows dependency graph)
 
-Generated from locked Cargo metadata. Original RustPad source: MIT.
+Generated from locked Cargo metadata. Original InkPage source: MIT.
 Embedded syntax acknowledgements: [SYNTAXES.md](licenses/SYNTAXES.md). Original color palettes; no upstream theme data embedded.
 
 | Package | Version | SPDX license |

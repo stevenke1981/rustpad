@@ -1,8 +1,8 @@
-# RustPad（暫名）
+# 墨頁 InkPage
 
-0.4 新增正規表示式搜尋／capture 取代，以及可取消的唯讀多檔搜尋與結果定位。固定核心覆蓋率 23/36（63.9%），不是完整 Notepad++ 產品百分比；[功能矩陣](ALIGNMENT.md)、[操作與限制](DIFF-0.4.md)、[本輪實測](PERFORMANCE-0.4.md)。
+0.5 新增分頁書籤導航與 Unicode 字素安全的行合併／分割。固定核心覆蓋率 25/36（69.4%），不是完整 Notepad++ 產品百分比；[功能矩陣](ALIGNMENT.md)、[操作與限制](DIFF-0.5.md)、[本輪實測](PERFORMANCE-0.5.md)。
 
-原創 Rust / egui 桌面文字編輯器，致敬 Notepad++ 的緊湊傳統桌面工作流程。選單、工具列、多分頁、行號、搜尋取代、亮暗主題、繁中介面；無 WebView。原創程式為 MIT，未複製 Notepad++ GPL 程式、標誌或素材。
+以 Rust / eframe-egui 編寫的原創桌面文字編輯器，致敬 Notepad++ 的緊湊傳統桌面工作流程。選單、工具列、多分頁、行號、搜尋取代、亮暗主題、繁中介面；無 WebView。InkPage 原創程式為 MIT，未複製 Notepad++ GPL 程式、標誌或素材。
 
 ```powershell
 cargo run --locked -j1
@@ -31,3 +31,7 @@ Windows 需 Rust MSVC、MSVC build tools、Windows SDK。Linux 需 C compiler、
 正規表示式：搜尋列勾選「正規表示式」；`(?m)` 多行錨點、`(?s)` 讓點號包含換行。取代使用 `$1`、`${name}`、`$$`；不存在的群組展開為空字串。Rust regex 不支援 look-around 或 pattern backreference，錯誤明示；不是 PCRE 全相容。內部 LF 搜尋，不以 `\r\n` 匹配 CRLF 原始 bytes；儲存保留 BOM/EOL。
 
 多檔搜尋：「搜尋 → 多檔搜尋」，選擇實體根資料夾，再開始／取消。只搜尋磁碟，未存分頁不包含；結果點擊定位前重新核對內容，不覆寫 dirty 分頁。詳見 DIFF-0.4.md 的數量、大小、連結及取消限制。
+
+0.5 快捷鍵（編輯区焦點）：Ctrl+F2 切換目前行書籤，F2 / Shift+F2 下一／上一書籤，Ctrl+J 合併選取行，Ctrl+Shift+J 按設定字素寬度分割選取／目前行；選單也可操作。書籤不改 dirty，僅保存在目前分頁生命週期；無法可靠對應的多行改寫清除該區書籤，undo 不復活已清除標記。
+
+「墨頁」取自書寫與頁面；名稱從開發工作名 RustPad 改為「墨頁 InkPage」，產品名與可攜檔案使用 InkPage。為保留連結／工具相容，GitHub URL、checkout 資料夾、Cargo crate 與 source build binary 仍是 rustpad；Windows 可攜包為 `InkPage/InkPage.exe`。未移動使用者檔案或設定；沒有需迁移的新增持久設定。名稱不主張商標獨占，本專案未做完整商標查核。
