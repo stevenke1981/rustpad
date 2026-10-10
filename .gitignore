@@ -6,6 +6,7 @@
 
 /metadata-windows.json
 /qa/*.log
+!/qa/v12-native-drop.log
 
 /qa/performance-v04/*/startup-*.png
 

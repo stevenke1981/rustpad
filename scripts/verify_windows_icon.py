@@ -8,7 +8,7 @@ import struct
 parser = argparse.ArgumentParser()
 parser.add_argument("exe", type=pathlib.Path)
 parser.add_argument("--output", type=pathlib.Path)
-parser.add_argument("--version", default="0.10.1")
+parser.add_argument("--version", default="0.12.0")
 args = parser.parse_args()
 path = str(args.exe.resolve())
 kernel = ctypes.WinDLL("kernel32", use_last_error=True)

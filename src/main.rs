@@ -5,6 +5,7 @@ mod branding;
 mod core;
 mod dragdrop;
 mod editor_chrome;
+mod editor_view;
 mod filesearch;
 mod fold;
 #[cfg(test)]
@@ -21,11 +22,9 @@ mod perf;
 mod session;
 mod structure;
 mod syntax;
+mod textops;
 use core::{Content, History, Newline, WhitespaceEdit};
-use eframe::egui::{
-    self, Color32, FontId, Key, Modifiers,
-    text::{CCursor, CCursorRange},
-};
+use eframe::egui::{self, Color32, FontId, Key, Modifiers};
 use std::{path::PathBuf, sync::mpsc, time::Duration};
 fn history_shortcuts(input: &mut egui::InputState, editor_focused: bool) -> (bool, bool) {
     if !editor_focused {
@@ -156,6 +155,7 @@ struct App {
     capture_schedule: perf::CaptureSchedule,
     show_spaces: bool,
     show_eol: bool,
+    view: editor_view::Options,
     tab_width: usize,
     insert_spaces: bool,
     syntax: syntax::Service,
@@ -584,6 +584,7 @@ impl App {
             capture_schedule: Default::default(),
             show_spaces: false,
             show_eol: false,
+            view: Default::default(),
             tab_width: 4,
             insert_spaces: false,
             syntax: syntax::Service::new(cc.egui_ctx.clone()),
@@ -1132,6 +1133,7 @@ impl App {
 }
 impl eframe::App for App {
     fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        self.editor_view_input(ctx, input);
         if let Some(position) = self.qa_hover {
             input.events.push(egui::Event::PointerMoved(position));
             ctx.style_mut(|style| style.interaction.tooltip_delay = 0.);
@@ -1251,6 +1253,7 @@ impl eframe::App for App {
         let mut goto_requested = false;
         let mut bookmark_action = None;
         let mut line_action = None;
+        let mut text_command = None;
         let mut indent_action = None;
         let mut bracket = false;
         let mut folding = false;
@@ -1336,6 +1339,12 @@ impl eframe::App for App {
                 if i.consume_key(Modifiers::CTRL, Key::J) {
                     line_action = Some(None);
                 }
+                if !self.docs[self.active].composing
+                    && !i.events.iter().any(|e| matches!(e, egui::Event::Ime(_)))
+                    && i.consume_key(Modifiers::CTRL, Key::Q)
+                {
+                    text_command = Some(textops::Command::Comment(textops::CommentCommand::Toggle));
+                }
                 if i.consume_key(Modifiers::CTRL, Key::D) {
                     edit_action = Some(actions::Edit::DuplicateLine);
                 }
@@ -1382,6 +1391,36 @@ impl eframe::App for App {
                     close |= ui.button(locale.text("關閉分頁    Ctrl+W")).clicked();
                 });
                 ui.menu_button(locale.text("編輯"), |ui| {
+                    let d = &self.docs[self.active];
+                    let can_edit =
+                        !self.busy && !d.composing && self.pending_close.is_none() && !self.exit;
+                    ui.add_enabled_ui(can_edit, |ui| {
+                        ui.menu_button(locale.text("註解"), |ui| {
+                            let language =
+                                syntax::resolve(d.path.as_deref(), &d.content.text, d.language);
+                            ui.add_enabled_ui(textops::supports_comments(language), |ui| {
+                                for command in textops::CommentCommand::ALL {
+                                    if ui.button(locale.text(command.label())).clicked() {
+                                        text_command = Some(textops::Command::Comment(command));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            if !textops::supports_comments(language) {
+                                ui.label(locale.text("目前語言未定義註解"));
+                            }
+                        });
+                        ui.menu_button(locale.text("行操作"), |ui| {
+                            ui.label(locale.text("選取時處理整行；未選取時處理全文"));
+                            for command in textops::LineCommand::ALL {
+                                if ui.button(locale.text(command.label())).clicked() {
+                                    text_command = Some(textops::Command::Lines(command));
+                                    ui.close();
+                                }
+                            }
+                        });
+                    });
+                    ui.separator();
                     undo |= ui
                         .add_enabled(
                             self.docs[self.active].history.can_undo(),
@@ -1491,7 +1530,23 @@ impl eframe::App for App {
                         locale.text("顯示空格與 Tab（僅視覺標記）"),
                     );
                     ui.checkbox(&mut self.show_eol, locale.text("顯示真實行尾與 EOF 標記"));
-                    ui.label(locale.text("不自動折行；行尾標記代表檔案換行"));
+                    ui.separator();
+                    ui.checkbox(&mut self.view.wrap, locale.text("自動換行（僅畫面）"));
+                    ui.label(locale.text("行號與行尾標記代表檔案的實際行"));
+                    ui.separator();
+                    if ui.button(locale.text("放大字體    Ctrl++")).clicked() {
+                        self.view.zoom(1);
+                    }
+                    if ui.button(locale.text("縮小字體    Ctrl+-")).clicked() {
+                        self.view.zoom(-1);
+                    }
+                    if ui.button(locale.text("重設字體    Ctrl+0")).clicked() {
+                        self.view.reset_zoom();
+                    }
+                    ui.label(locale.format(
+                        "編輯字體：{0} pt · Ctrl+滾輪縮放",
+                        &[&self.view.font_size.to_string()],
+                    ));
                 });
                 ui.menu_button(locale.text("格式"), |ui| {
                     let d = &mut self.docs[self.active];
@@ -1949,6 +2004,9 @@ impl eframe::App for App {
         if let Some(width) = line_action {
             self.line_transform(width);
         }
+        if let Some(command) = text_command {
+            self.text_command(command);
+        }
         if let Some(action) = indent_action {
             self.indent_action(action);
         }
@@ -2110,144 +2168,7 @@ impl eframe::App for App {
                 ));
             });
         });
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::central_panel(&ctx.style())
-                    .fill(ctx.style().visuals.extreme_bg_color)
-                    .inner_margin(4.),
-            )
-            .show(ctx, |ui| {
-                let d = &mut self.docs[self.active];
-                d.bookmarks.sync(&d.content.text);
-                d.folds.sync(&d.content.text);
-                let before =
-                    (!ctx.input(|input| input.events.is_empty())).then(|| d.content.clone());
-                let id = egui::Id::new(("editor", d.id));
-                let pending_scroll = self.selection.is_some();
-                if let Some((start, end)) = self.selection.take() {
-                    let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
-                    state.cursor.set_char_range(Some(CCursorRange::two(
-                        CCursor::new(if d.cursor == start { end } else { start }),
-                        CCursor::new(if d.cursor == start { start } else { end }),
-                    )));
-                    state.store(ctx, id);
-                    ctx.memory_mut(|m| m.request_focus(id));
-                }
-                egui::ScrollArea::both()
-                    .animated(false)
-                    .id_salt(("scroll", d.id))
-                    .show(ui, |ui| {
-                        ui.horizontal_top(|ui| {
-                            let nums = fold::gutter(&d.content.text, &d.folds.hidden)
-                                .into_iter()
-                                .map(|n| {
-                                    format!(
-                                        "{}{n:>4}\n",
-                                        if d.folds.hidden.iter().any(|r| d.content.text[..r.start]
-                                            .matches('\n')
-                                            .count()
-                                            == n)
-                                        {
-                                            ">"
-                                        } else if d.bookmarks.lines.contains(&(n - 1)) {
-                                            "*"
-                                        } else {
-                                            " "
-                                        }
-                                    )
-                                })
-                                .collect::<String>();
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(nums.trim_end())
-                                        .font(FontId::monospace(15.))
-                                        .color(if self.dark {
-                                            Color32::from_rgb(173, 182, 194)
-                                        } else {
-                                            Color32::from_rgb(94, 102, 115)
-                                        }),
-                                )
-                                .selectable(false),
-                            );
-                            ui.separator();
-                            let dark = self.dark;
-                            let tab_width = self.tab_width;
-                            let cache = &mut d.highlight_cache;
-                            let path = d.path.clone();
-                            let manual = d.language;
-                            let doc_id = d.id;
-                            let service = &mut self.syntax;
-                            let hidden = d.folds.hidden.clone();
-                            let mut layouter =
-                                move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _width: f32| {
-                                    let language =
-                                        syntax::resolve(path.as_deref(), text.as_str(), manual);
-                                    let (height, space) = ui.fonts_mut(|fonts| {
-                                        (
-                                            fonts.row_height(&FontId::monospace(15.)),
-                                            fonts.glyph_width(&FontId::monospace(15.), ' '),
-                                        )
-                                    });
-                                    let mut job = service.layout(
-                                        doc_id,
-                                        text.as_str(),
-                                        language,
-                                        dark,
-                                        tab_width,
-                                        height,
-                                        ui.ctx().pixels_per_point(),
-                                        space,
-                                        cache,
-                                    );
-                                    fold::apply(&mut job, &hidden);
-                                    ui.fonts_mut(|fonts| fonts.layout_job(job))
-                                };
-                            let output = egui::TextEdit::multiline(&mut d.content.text)
-                                .id(id)
-                                .font(FontId::monospace(15.))
-                                .code_editor()
-                                .frame(false)
-                                .margin(egui::Vec2::ZERO)
-                                .desired_width(ui.available_width().max(600.))
-                                .desired_rows(30)
-                                .layouter(&mut layouter)
-                                .show(ui);
-                            if let Some(range) = output.cursor_range {
-                                d.cursor = range.primary.index;
-                                d.selected = (
-                                    range.primary.index.min(range.secondary.index),
-                                    range.primary.index.max(range.secondary.index),
-                                );
-                            }
-                            if pending_scroll {
-                                let rect = output
-                                    .galley
-                                    .pos_from_cursor(CCursor::new(d.cursor))
-                                    .translate(output.galley_pos.to_vec2());
-                                ui.scroll_to_rect(rect, Some(egui::Align::Center));
-                            }
-                            paint_whitespace(
-                                ui,
-                                &output,
-                                self.show_spaces,
-                                self.show_eol,
-                                d.content.newline,
-                            );
-                        });
-                    });
-                if let Some(before) = before
-                    && before != d.content
-                {
-                    if let Err(error) = core::validate_text(&d.content.text) {
-                        d.content = before;
-                        self.message = error;
-                    } else {
-                        d.history.record(before);
-                    }
-                    self.match_range = None;
-                }
-                d.bookmarks.sync(&d.content.text);
-            });
+        self.show_editor(ctx);
         if self.about_open {
             egui::Window::new(locale.text("關於墨頁 InkPage"))
                 .id(egui::Id::new("about-window"))
@@ -2405,7 +2326,7 @@ fn paint_whitespace(
     } else {
         Color32::from_rgb(130, 151, 165)
     };
-    for row in &output.galley.rows {
+    for (index, row) in output.galley.rows.iter().enumerate() {
         if row.row.size.y <= 0. {
             continue;
         }
@@ -2447,7 +2368,7 @@ fn paint_whitespace(
                 }
             }
         }
-        if eol {
+        if eol && (row.row.ends_with_newline || index + 1 == output.galley.rows.len()) {
             let label = if row.row.ends_with_newline {
                 newline.label()
             } else {
@@ -2571,6 +2492,61 @@ fn main() -> eframe::Result {
             {
                 app.docs[0].path = Some(PathBuf::from("qa-demo.txt"));
                 match flow.as_str() {
+                    "wrap" | "wrap-zoom" => {
+                        app.docs[0].path = Some(PathBuf::from("word_wrap_demo.rs"));
+                        app.docs[0].content = Content {
+                            text: format!(
+                                "// {}中文、emoji 🙂 與真正的換行仍保留。\nfn main() {{\n\tlet message = \"{}\";\n\tprintln!(\"{{message}}\");\n}}\n// LongToken: {}\n// 行號只計算檔案中的實際行\n",
+                                "Word wrap changes the display and keeps file bytes unchanged. "
+                                    .repeat(3),
+                                "你好，世界 🙂 · Rust editor · ".repeat(4),
+                                "LongIdentifier".repeat(12)
+                            ),
+                            bom: true,
+                            newline: Newline::Crlf,
+                        };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.view.wrap = true;
+                        if flow == "wrap-zoom" {
+                            app.view.font_size = 22.;
+                        }
+                        app.show_eol = true;
+                        app.search = false;
+                        let d = &mut app.docs[0];
+                        d.bookmarks.toggle(&d.content.text, 5);
+                    }
+                    "comments" => {
+                        app.docs[0].path = Some(PathBuf::from("comments_demo.rs"));
+                        app.docs[0].content = Content { text: "fn main() {\n\tlet 中文 = \"你好 🙂\";\n\tprintln!(\"{中文}\");\n\n}\n// 選取外的內容保留\n".into(),
+                            bom: true, newline: Newline::Crlf };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        let start = actions::goto_line(&app.docs[0].content.text, 2).unwrap();
+                        let end = actions::goto_line(&app.docs[0].content.text, 4).unwrap();
+                        app.docs[0].selected = (start, end);
+                        app.text_command(textops::Command::Comment(
+                            textops::CommentCommand::Toggle,
+                        ));
+                        app.show_eol = true;
+                        app.search = false;
+                    }
+                    "lines-sort" => {
+                        app.docs[0].content = Content {
+                            text: "選取外（上）\nzebra\n中文🙂\napple\nzebra\n選取外（下）\n"
+                                .into(),
+                            bom: true,
+                            newline: Newline::Crlf,
+                        };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        let start = actions::goto_line(&app.docs[0].content.text, 2).unwrap();
+                        let end = actions::goto_line(&app.docs[0].content.text, 6).unwrap();
+                        app.docs[0].selected = (start, end);
+                        app.text_command(textops::Command::Lines(
+                            textops::LineCommand::SortAscending,
+                        ));
+                        app.text_command(textops::Command::Lines(textops::LineCommand::Unique));
+                        app.show_eol = true;
+                        app.search = false;
+                    }
                     "chrome" => {
                         app.docs[0].path = Some(PathBuf::from("editor_demo_墨頁_Notepad_style.rs"));
                         app.docs[0].content.bom = true;
@@ -2774,6 +2750,17 @@ fn main() -> eframe::Result {
                         app.show_eol = true;
                     }
                     _ => {}
+                }
+                if args.iter().any(|arg| arg == "--qa-wrap") {
+                    app.view.wrap = true;
+                }
+                if let Some(index) = args.iter().position(|arg| arg == "--qa-font")
+                    && let Some(size) = args
+                        .get(index + 1)
+                        .and_then(|size| size.parse::<f32>().ok())
+                    && size.is_finite()
+                {
+                    app.view.font_size = size.clamp(9., 32.);
                 }
             }
             if !args.iter().any(|s| s == "--no-session") {
@@ -3304,6 +3291,7 @@ mod app_tests {
             capture_schedule: Default::default(),
             show_spaces: false,
             show_eol: false,
+            view: Default::default(),
             tab_width: 4,
             insert_spaces: false,
             syntax: syntax::Service::new(egui::Context::default()),
@@ -3430,8 +3418,8 @@ mod app_tests {
                 assert_eq!(small.rows.len(), large.rows.len());
                 assert_eq!(small.size().y, large.size().y);
                 (
-                    small.pos_from_cursor(CCursor::new(2)).min.x,
-                    large.pos_from_cursor(CCursor::new(2)).min.x,
+                    small.pos_from_cursor(egui::text::CCursor::new(2)).min.x,
+                    large.pos_from_cursor(egui::text::CCursor::new(2)).min.x,
                 )
             }));
         });

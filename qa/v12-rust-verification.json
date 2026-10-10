@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-10T01:34:42.182575+00:00",
+  "mode": "execute",
+  "project": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+  "status": "passed",
+  "blockers": [],
+  "steps": [
+    {
+      "name": "rustc-version",
+      "argv": [
+        "rustc",
+        "-Vv"
+      ],
+      "cwd": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.047,
+      "output_tail": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+      "output_truncated": false
+    },
+    {
+      "name": "cargo-version",
+      "argv": [
+        "cargo",
+        "--version"
+      ],
+      "cwd": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.032,
+      "output_tail": "cargo 1.99.0 (5f94df478 2026-08-27)\n",
+      "output_truncated": false
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--package",
+        "rustpad",
+        "--",
+        "--check"
+      ],
+      "cwd": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.25,
+      "output_tail": "",
+      "output_truncated": false
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--package",
+        "rustpad",
+        "--all-targets",
+        "--locked",
+        "--offline"
+      ],
+      "cwd": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 1.89,
+      "output_tail": "    Checking rustpad v0.12.0 (C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.84s\n",
+      "output_truncated": false
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--package",
+        "rustpad",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.406,
+      "output_tail": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s\n",
+      "output_truncated": false
+    },
+    {
+      "name": "tests",
+      "argv": [
+        "cargo",
+        "test",
+        "--package",
+        "rustpad",
+        "--all-targets",
+        "--locked",
+        "--offline"
+      ],
+      "cwd": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 1.485,
+      "output_tail": "   Compiling rustpad v0.12.0 (C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.51s\n     Running unittests src\\main.rs (target\\debug\\deps\\rustpad-64742b5c2c45aa0a.exe)\n\nrunning 102 tests\ntest actions::tests::line_navigation_handles_unicode_eof_and_invalid_input ... ok\ntest actions::tests::cursor_inside_a_match_preserves_next_previous_boundaries ... ok\ntest actions::tests::case_mapping_uses_the_same_rules_on_query_and_source ... ok\ntest actions::tests::previous_next_and_no_wrap_boundaries ... ok\ntest actions::tests::unicode_case_expansion_and_no_selection_is_safe ... ok\ntest actions::tests::unicode_search_options_preserve_original_ranges ... ok\ntest actions::tests::selection_replace_is_atomic_unicode_and_one_undo ... ok\ntest app_tests::file_hit_navigation_preserves_dirty_tabs_and_selects_unicode_range ... ok\ntest app_tests::find_and_replace_survives_widget_selection_application ... ok\ntest app_tests::dirty_close_cancel_and_discard ... ok\ntest app_tests::bookmarks_are_tab_local_not_dirty_and_shift_through_edit_undo ... ok\ntest app_tests::async_save_keeps_newer_edits_and_failed_save_dirty ... ok\ntest actions::tests::line_edit_eof_and_failure_preserves_original ... ok\ntest app_tests::navigation_and_edit_actions_update_cursor_without_bad_dirty ... ok\ntest app_tests::line_transforms_are_one_undo_transaction_and_failed_actions_keep_selection ... ok\ntest app_tests::new_tabs_preserve_content_and_clear_old_search_scope ... ok\ntest app_tests::changing_search_conditions_cannot_replace_an_old_match ... ok\ntest app_tests::save_as_same_text_resolves_new_language_without_dirty ... ok\ntest app_tests::search_count_selection_replace_and_undo_redo_are_consistent ... ok\ntest bookmarks::tests::changed_multi_line_blocks_clear_ambiguous_markers_and_eof_is_valid ... ok\ntest app_tests::whitespace_ui_action_records_dirty_and_undo ... ok\ntest app_tests::replace_current_uses_the_match_found_from_inside_an_overlap ... ok\ntest app_tests::search_match_does_not_cross_tabs ... ok\ntest bookmarks::tests::navigation_wrap_and_unicode_edit_positions ... ok\ntest core::tests::external_comparison_uses_bytes_for_no_newline_files ... ok\ntest app_tests::search_focus_does_not_steal_undo_from_editor ... ok\ntest core::tests::close_cancel_and_history ... ok\ntest app_tests::invalid_regex_is_visible_and_cannot_modify_the_document ... ok\ntest core::tests::final_newline_keeps_blank_lines ... ok\ntest core::tests::legacy_and_platform_eol_roundtrip ... ok\ntest core::tests::replacement_is_one_undo_transaction ... ok\ntest core::tests::roundtrip ... ok\ntest core::tests::selection_tab_conversion_and_undo ... ok\ntest core::tests::tab_stops_conversion_matches_columns_and_selection ... ok\ntest core::tests::unicode_search_replace ... ok\ntest app_tests::tab_layout_keeps_text_and_cursor_mapping ... ok\ntest core::tests::rejects_unsafe_input ... ok\ntest core::tests::whitespace_preserves_unicode_blank_lines_and_bom ... ok\ntest editor_chrome::tests::status_counts_real_encoded_bytes_unicode_and_selection_line_boundary ... ok\ntest dragdrop::tests::reorder_preserves_active_identity_history_cursor_and_close_target ... ok\ntest dragdrop::tests::busy_operations_defer_drops_and_queue_limits_are_visible ... ok\ntest fold::tests::folding_keeps_real_text_and_scalar_mapping_but_removes_row_height ... ok\ntest core::tests::whitespace_conversion_limits_no_partial_mutation ... ok\ntest fold::tests::folded_widget_copy_contains_hidden_unicode_and_edit_expands_first ... ok\ntest app_tests::file_search_worker_and_stale_disk_navigation_are_safe ... ok\ntest filesearch::tests::cancelled_scan_does_not_read_and_invalid_pattern_errors ... ok\ntest app_tests::regex_zero_length_next_advances_and_capture_cursor_is_real ... ok\ntest core::tests::output_limits_and_invalid_content_preserve_original ... ok\ntest branding::tests::icon_has_valid_rgba_and_transparency ... ok\ntest core::tests::failed_write_preserves_original ... ok\ntest indent::tests::enter_replaces_selection_and_keeps_prefix_only ... ok\ntest i18n::tests::catalog_has_all_languages_and_preserves_every_placeholder ... ok\ntest indent::tests::selected_lines_unicode_and_end_at_next_line_start ... ok\ntest indent::tests::rejected_range_and_growth_do_not_modify_content ... ok\ntest lines::tests::join_preserves_outside_bom_crlf_and_excludes_end_line_start ... ok\ntest lines::tests::split_respects_extended_graphemes_empty_lines_and_eof ... ok\ntest native_drop_tests::windows_shell_drop_opens_unicode_and_long_paths_in_the_real_app ... ignored, creates its own native window; run explicitly on Windows\ntest filesearch::tests::scan_unicode_bom_crlf_binary_and_scope ... ok\ntest pattern::tests::empty_pattern_is_explicit_and_zero_length_batch_terminates ... ok\ntest pattern::tests::invalid_regex_and_failed_expansion_preserve_content ... ok\ntest gui_tests::wrapped_and_zoomed_fold_gutter_keeps_source_numbers_and_bookmarks ... ok\ntest pattern::tests::regex_unicode_zero_length_and_capture_replacement ... ok\ntest i18n::tests::preferences_restart_conflict_and_corrupt_file_are_safe ... ok\ntest perf::tests::delayed_restore_startup_capture_retries_and_requests_exactly_once ... ok\ntest session::tests::restart_roundtrip_preserves_dirty_unicode_and_format ... ok\ntest gui_tests::raw_drop_event_reaches_background_open_and_keeps_unsaved_content ... ok\ntest dragdrop::tests::multiple_drops_preserve_dirty_tabs_and_reject_invalid_files ... ok\ntest app_tests::session_worker_restart_restores_multiple_dirty_tabs_without_writing_sources ... ok\ntest syntax::tests::detect_extension_shebang_and_manual ... ok\ntest session::tests::rejected_snapshot_and_atomic_failure_retain_previous_session ... ok\ntest pattern::tests::replacement_template_matches_rust_regex_and_is_bounded ... ok\ntest lines::tests::rejected_limits_and_empty_join_preserve_original ... ok\ntest syntax::tests::layout_invalidation_language_theme_tabs_font_and_text ... ok\ntest session::tests::session_never_writes_original_and_rejects_conflicts_or_invalid_cache ... ok\ntest textops::tests::comments_toggle_indented_unicode_and_skip_blank_lines_without_touching_next_line ... ok\ntest i18n::tests::localization_keeps_opaque_values_and_changes_existing_notices ... ok\ntest textops::tests::language_rules_and_invalid_block_delimiters_are_atomic ... ok\ntest textops::tests::rejected_and_blocked_app_commands_preserve_selection_history_and_other_tabs ... ok\ntest textops::tests::sorting_selected_unicode_lines_preserves_outside_and_bom_crlf ... ok\ntest textops::tests::unique_lines_keep_first_occurrence_and_terminal_newline ... ok\ntest app_tests::background_result_cannot_mutate_a_different_tab_or_query ... ok\ntest gui_tests::tab_keyboard_cycle_preserves_dirty_format_history_and_wraps ... ok\ntest gui_tests::tab_middle_close_targets_inactive_dirty_document_and_cancel_keeps_it ... ok\ntest gui_tests::comment_shortcut_is_one_undo_and_unsupported_language_leaves_content_intact ... ok\ntest gui_tests::tab_drag_pointer_release_reorders_and_escape_cancels ... ok\ntest gui_tests::ui_language_menu_saves_preference_and_updates_title_and_controls ... ok\ntest gui_tests::line_operations_menu_sorts_whole_document_and_undo_restores_format ... ok\ntest gui_tests::window_menu_switch_and_status_double_click_keep_document_data ... ok\ntest gui_tests::view_menu_wrap_keeps_real_lines_eol_cursor_bytes_and_copied_unicode ... ok\ntest app_tests::indent_and_enter_are_undoable_and_bracket_results_are_snapshot_guarded ... ok\ntest syntax::tests::edits_propagate_multiline_state_and_limit_falls_back ... ok\ntest syntax::tests::multiline_scope_state_is_not_reset ... ok\ntest gui_tests::editor_zoom_keys_and_wheel_preserve_document_and_global_ui_scale ... ok\ntest app_tests::large_search_and_replace_worker_preserves_edits_and_history ... ok\ntest pattern::tests::large_regex_limits_do_not_partially_replace_and_line_modes_are_explicit ... ok\ntest structure::tests::python_multiline_strings_and_malformed_nesting ... ok\ntest filesearch::tests::result_cap_and_large_files_are_explicit ... ok\ntest fold::tests::block_scopes_nested_unicode_eof_and_changed_content_are_safe ... ok\ntest structure::tests::ignores_comments_strings_and_uses_scalar_positions ... ok\ntest app_tests::folding_keeps_hidden_cursor_format_and_content_and_rejects_stale_results ... ok\ntest syntax::tests::grammars_and_multiline_unicode_are_real ... ok\ntest syntax::tests::idle_and_plain_services_do_not_load_grammar_and_first_code_loads_once ... ok\n\ntest result: ok. 101 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.30s\n\n     Running unittests examples\\grammar_licenses.rs (target\\debug\\examples\\grammar_licenses-1bb57116eae12b16.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_truncated": false
+    },
+    {
+      "name": "doctests",
+      "argv": [
+        "cargo",
+        "test",
+        "--package",
+        "rustpad",
+        "--doc",
+        "--locked",
+        "--offline"
+      ],
+      "cwd": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad",
+      "status": "not_applicable",
+      "reason": "Binary-only crate; no doc-testable library target"
+    }
+  ],
+  "limitations": [
+    "--offline governs Cargo dependency access, not rustup, build.rs, tests, or external programs.",
+    "Execution can create target artifacts and run untrusted project code; review the project first.",
+    "This is a baseline, not a complete feature/target/runtime or security test matrix.",
+    "No automatic toolchain installation, dependency update, or cargo fix is performed."
+  ]
+}

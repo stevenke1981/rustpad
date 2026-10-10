@@ -259,3 +259,24 @@ grammar span 未涵蓋完整原文	grammar span 未覆盖完整原文	Grammar sp
 選取 {0} 字／{1} 行	选中 {0} 字／{1} 行	Sel {0} chars / {1} lines	選択 {0} 文字／{1} 行
 選取按 Unicode scalar 計數；末端換行不多算下一空白行	选中按 Unicode scalar 计数；末尾换行不多算下一个空行	Selection counts Unicode scalars; a final newline does not add the next blank line	選択は Unicode scalar 単位；末尾の改行では次の空行を数えません
 末尾換行：{0}	末尾换行：{0}	Final newline: {0}	末尾の改行：{0}
+註解	注释	Comment	コメント
+切換行註解    Ctrl+Q	切换行注释    Ctrl+Q	Toggle line comment    Ctrl+Q	行コメント切替    Ctrl+Q
+加入行註解	添加行注释	Add line comment	行コメントを追加
+移除行註解	移除行注释	Remove line comment	行コメントを解除
+目前語言未定義註解	当前语言未定义注释	No comments defined for this language	この言語にはコメントが定義されていません
+行操作	行操作	Line operations	行の操作
+選取時處理整行；未選取時處理全文	选中时处理整行；未选中时处理全文	Selected lines, or the whole document without a selection	選択した行を処理；選択がなければ文書全体
+依字元排序（升冪）	按字符排序（升序）	Sort lines ascending	行を昇順に並べ替え
+依字元排序（降冪）	按字符排序（降序）	Sort lines descending	行を降順に並べ替え
+反轉行順序	反转行顺序	Reverse line order	行の順序を反転
+移除重複行	移除重复行	Remove duplicate lines	重複行を削除
+移除連續重複行	移除连续重复行	Remove consecutive duplicate lines	連続する重複行を削除
+自動換行（僅畫面）	自动换行（仅画面）	Word wrap (display only)	折り返し（表示のみ）
+行號與行尾標記代表檔案的實際行	行号和行尾标记代表文件的实际行	Line numbers and EOL markers follow actual file lines	行番号と改行記号はファイルの実際の行を示します
+放大字體    Ctrl++	放大字体    Ctrl++	Zoom in    Ctrl++	文字を拡大    Ctrl++
+縮小字體    Ctrl+-	缩小字体    Ctrl+-	Zoom out    Ctrl+-	文字を縮小    Ctrl+-
+重設字體    Ctrl+0	重置字体    Ctrl+0	Reset zoom    Ctrl+0	文字サイズをリセット    Ctrl+0
+編輯字體：{0} pt · Ctrl+滾輪縮放	编辑字体：{0} pt · Ctrl+滚轮缩放	Editor font: {0} pt · Ctrl+wheel to zoom	編集文字：{0} pt · Ctrl+ホイールで拡大縮小
+文字處理完成；Ctrl+Z 可復原	文字处理完成；Ctrl+Z 可撤销	Text operation complete; Ctrl+Z to undo	文字処理が完了；Ctrl+Z で元に戻せます
+文字處理失敗：{0}	文字处理失败：{0}	Text operation failed: {0}	文字処理に失敗：{0}
+選取內容包含區塊註解界符，未修改	选中内容包含块注释分隔符，未修改	Selection contains block comment delimiters; unchanged	選択範囲にブロックコメントの区切りがあります；変更なし

@@ -1,0 +1,126 @@
+[
+  {
+    "name": "v12-wrap-light",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-light.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-light.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "wrap"
+    ]
+  },
+  {
+    "name": "v12-wrap-dark",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-dark.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-dark.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "wrap",
+      "--narrow",
+      "--dark"
+    ]
+  },
+  {
+    "name": "v12-wrap-zoom",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-zoom.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-zoom.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "wrap-zoom"
+    ]
+  },
+  {
+    "name": "v12-wrap-en",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-en.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-en.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "wrap",
+      "--narrow",
+      "--lang",
+      "en"
+    ]
+  },
+  {
+    "name": "v12-wrap-ja",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-ja.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-wrap-ja.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "wrap",
+      "--narrow",
+      "--lang",
+      "ja"
+    ]
+  },
+  {
+    "name": "v12-comments",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-comments.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-comments.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "comments"
+    ]
+  },
+  {
+    "name": "v12-lines",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-lines.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-lines.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "lines-sort",
+      "--dark"
+    ]
+  },
+  {
+    "name": "v12-fold-zoom",
+    "status": "passed",
+    "exit_code": 0,
+    "png": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-fold-zoom.png",
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-fold-zoom.png",
+      "--no-session",
+      "--no-settings",
+      "--qa-flow",
+      "fold",
+      "--qa-wrap",
+      "--qa-font",
+      "22"
+    ]
+  }
+]

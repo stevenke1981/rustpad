@@ -102,7 +102,8 @@ pub fn apply(job: &mut egui::text::LayoutJob, hidden: &[Range<usize>]) {
     }
     job.sections = result;
 }
-pub fn gutter(text: &str, hidden: &[Range<usize>]) -> Vec<usize> {
+#[cfg(test)]
+fn gutter(text: &str, hidden: &[Range<usize>]) -> Vec<usize> {
     let mut byte = 0;
     let mut rows = Vec::new();
     for (line, part) in text.split('\n').enumerate() {

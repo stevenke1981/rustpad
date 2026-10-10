@@ -10,6 +10,340 @@ fn frame(app: &mut App, ctx: &egui::Context, mut input: egui::RawInput) -> egui:
     ctx.run(input, |ctx| eframe::App::update(app, ctx, &mut frame))
 }
 
+fn shortcut(
+    app: &mut App,
+    ctx: &egui::Context,
+    key: egui::Key,
+    modifiers: Modifiers,
+) -> egui::FullOutput {
+    frame(
+        app,
+        ctx,
+        egui::RawInput {
+            modifiers,
+            events: vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+    )
+}
+
+fn text_shapes(output: &egui::FullOutput) -> Vec<&egui::epaint::TextShape> {
+    fn collect<'a>(shape: &'a egui::epaint::Shape, texts: &mut Vec<&'a egui::epaint::TextShape>) {
+        match shape {
+            egui::epaint::Shape::Text(text) => texts.push(text),
+            egui::epaint::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, texts);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        collect(&clipped.shape, &mut texts);
+    }
+    texts
+}
+
+#[test]
+fn view_menu_wrap_keeps_real_lines_eol_cursor_bytes_and_copied_unicode() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.locale = i18n::Locale::English;
+    app.docs[0].content = crate::core::Content {
+        text: format!(
+            "{}中文🙂\n\t{}\ntail",
+            "alpha beta gamma ".repeat(16),
+            "Z".repeat(180)
+        ),
+        bom: true,
+        newline: crate::core::Newline::Crlf,
+    };
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    let bytes = crate::core::encode(&before).unwrap();
+    app.show_eol = true;
+    app.docs[0].cursor = 8;
+    app.docs[0].selected = (8, 8);
+    app.selection = Some((8, 8));
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(&mut app, &ctx, Default::default());
+    click(&mut app, &ctx, text_center(&output, "View"));
+    let output = frame(&mut app, &ctx, Default::default());
+    click(
+        &mut app,
+        &ctx,
+        text_center(&output, "Word wrap (display only)"),
+    );
+    assert!(app.view.wrap);
+    // Close the menu and inspect the actual TextEdit galley and gutter paint.
+    shortcut(&mut app, &ctx, egui::Key::Escape, Modifiers::NONE);
+    let output = frame(&mut app, &ctx, Default::default());
+    let texts = text_shapes(&output);
+    let editor = texts
+        .iter()
+        .find(|text| text.galley.text() == before.text)
+        .unwrap();
+    assert!(editor.galley.rows.len() > 3);
+    assert_eq!(
+        editor
+            .galley
+            .rows
+            .iter()
+            .filter(|row| row.ends_with_newline)
+            .count(),
+        2
+    );
+    assert!(editor.galley.size().x < 1000.);
+    for line in 1..=3 {
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|text| text.galley.text() == format!(" {line:>4}"))
+                .count(),
+            1
+        );
+    }
+    assert_eq!(
+        texts
+            .iter()
+            .filter(|text| text.galley.text() == "EOF")
+            .count(),
+        1
+    );
+    assert_eq!(
+        texts
+            .iter()
+            .filter(|text| text.galley.text() == "CRLF"
+                && text.pos.y >= editor.pos.y
+                && text.pos.y < editor.pos.y + editor.galley.size().y)
+            .count(),
+        2
+    );
+    assert_eq!(app.docs[0].cursor, 8);
+    assert_eq!(app.docs[0].selected, (8, 8));
+    assert_eq!(crate::core::encode(&app.docs[0].content).unwrap(), bytes);
+    assert!(!app.docs[0].dirty());
+    assert!(!app.docs[0].history.can_undo());
+    let end = before.text.chars().count();
+    app.docs[0].cursor = end;
+    app.selection = Some((0, end));
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(
+        &mut app,
+        &ctx,
+        egui::RawInput {
+            events: vec![Event::Copy],
+            ..Default::default()
+        },
+    );
+    assert!(output.platform_output.commands.iter().any(
+        |command| matches!(command, egui::OutputCommand::CopyText(text) if text == &before.text)
+    ));
+    frame(
+        &mut app,
+        &ctx,
+        egui::RawInput {
+            events: vec![Event::Paste("新🙂\n".into())],
+            ..Default::default()
+        },
+    );
+    assert_eq!(app.docs[0].content.text, "新🙂\n");
+    shortcut(&mut app, &ctx, egui::Key::Z, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content, before);
+    assert!(!app.docs[0].history.can_undo());
+}
+
+#[test]
+fn editor_zoom_keys_and_wheel_preserve_document_and_global_ui_scale() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.docs[0].content.text = "中文🙂\tvalue\n".into();
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    app.selection = Some((2, 2));
+    app.docs[0].cursor = 2;
+    frame(&mut app, &ctx, Default::default());
+    let zoom = ctx.zoom_factor();
+    let output = shortcut(
+        &mut app,
+        &ctx,
+        egui::Key::Equals,
+        Modifiers::CTRL | Modifiers::SHIFT,
+    );
+    assert_eq!(app.view.font_size, 16.);
+    assert_eq!(ctx.zoom_factor(), zoom);
+    let texts = text_shapes(&output);
+    let editor = texts
+        .iter()
+        .find(|text| text.galley.text() == before.text)
+        .unwrap();
+    assert_eq!(editor.galley.job.sections[0].format.font_id.size, 16.);
+    let pos = editor.pos + vec2(4., 5.);
+    frame(
+        &mut app,
+        &ctx,
+        egui::RawInput {
+            modifiers: Modifiers::CTRL,
+            events: vec![
+                Event::PointerMoved(pos),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: vec2(0., 1.),
+                    modifiers: Modifiers::CTRL,
+                },
+            ],
+            ..Default::default()
+        },
+    );
+    assert_eq!(app.view.font_size, 17.);
+    assert_eq!(ctx.zoom_factor(), zoom);
+    shortcut(&mut app, &ctx, egui::Key::Minus, Modifiers::CTRL);
+    assert_eq!(app.view.font_size, 16.);
+    for _ in 0..40 {
+        shortcut(&mut app, &ctx, egui::Key::Plus, Modifiers::CTRL);
+    }
+    assert_eq!(app.view.font_size, 32.);
+    for _ in 0..40 {
+        shortcut(&mut app, &ctx, egui::Key::Minus, Modifiers::CTRL);
+    }
+    assert_eq!(app.view.font_size, 9.);
+    shortcut(&mut app, &ctx, egui::Key::Num0, Modifiers::CTRL);
+    assert_eq!(app.view.font_size, 15.);
+    app.docs[0].composing = true;
+    shortcut(&mut app, &ctx, egui::Key::Plus, Modifiers::CTRL);
+    assert_eq!(app.view.font_size, 15.);
+    app.docs[0].composing = false;
+    ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("search-field-test")));
+    shortcut(&mut app, &ctx, egui::Key::Plus, Modifiers::CTRL);
+    assert_eq!(app.view.font_size, 15.);
+    assert_eq!(app.docs[0].content, before);
+    assert_eq!(app.docs[0].cursor, 2);
+    assert!(!app.docs[0].history.can_undo());
+}
+
+#[test]
+fn wrapped_and_zoomed_fold_gutter_keeps_source_numbers_and_bookmarks() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.docs[0].content.text = format!(
+        "fn main() {{ // {}\n    hidden 中文🙂\n    hidden two\n}}\ntail",
+        "long header ".repeat(20)
+    );
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    let start = before.text.find('\n').unwrap() + 1;
+    let end = before.text.rfind("}\n").unwrap();
+    app.docs[0].folds.toggle(&before.text, start..end);
+    app.docs[0].bookmarks.toggle(&before.text, 4);
+    app.view.wrap = true;
+    app.view.font_size = 20.;
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(&mut app, &ctx, Default::default());
+    let texts = text_shapes(&output);
+    for label in [">   1", "    4", "*   5"] {
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|text| text.galley.text() == label)
+                .count(),
+            1,
+            "{label}"
+        );
+    }
+    assert!(
+        !texts
+            .iter()
+            .any(|text| matches!(text.galley.text(), "    2" | "    3"))
+    );
+    let editor = texts
+        .iter()
+        .find(|text| text.galley.text() == before.text)
+        .unwrap();
+    assert!(editor.galley.rows.len() > 5);
+    assert_eq!(app.docs[0].content, before);
+    assert_eq!(
+        app.docs[0].folds.hidden.as_slice(),
+        std::slice::from_ref(&(start..end))
+    );
+}
+
+#[test]
+fn comment_shortcut_is_one_undo_and_unsupported_language_leaves_content_intact() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.locale = i18n::Locale::English;
+    app.docs[0].language = Some(crate::syntax::Language::Rust);
+    app.docs[0].content = crate::core::Content {
+        text: "outside\n  let 中 = \"🙂\";\n\tprintln!();\n0tail\n".into(),
+        bom: true,
+        newline: crate::core::Newline::Crlf,
+    };
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    let end = crate::actions::goto_line(&before.text, 4).unwrap();
+    app.docs[0].selected = (8, end);
+    app.docs[0].cursor = end;
+    app.selection = Some((8, end));
+    frame(&mut app, &ctx, Default::default());
+    shortcut(&mut app, &ctx, egui::Key::Q, Modifiers::CTRL);
+    assert_eq!(
+        app.docs[0].content.text,
+        "outside\n  // let 中 = \"🙂\";\n\t// println!();\n0tail\n"
+    );
+    let commented = app.docs[0].content.clone();
+    assert!(app.docs[0].dirty());
+    shortcut(&mut app, &ctx, egui::Key::Z, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content, before);
+    assert!(!app.docs[0].history.can_undo());
+    shortcut(&mut app, &ctx, egui::Key::Y, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content, commented);
+    app.docs[0].language = Some(crate::syntax::Language::Json);
+    let selection = app.docs[0].selected;
+    shortcut(&mut app, &ctx, egui::Key::Q, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content, commented);
+    assert_eq!(app.docs[0].selected, selection);
+    assert!(
+        app.locale
+            .message(&app.message)
+            .contains("No comments defined")
+    );
+}
+
+#[test]
+fn line_operations_menu_sorts_whole_document_and_undo_restores_format() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.locale = i18n::Locale::English;
+    app.docs[0].content = crate::core::Content {
+        text: "z\n中文🙂\na\nz\n".into(),
+        bom: true,
+        newline: crate::core::Newline::Cr,
+    };
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    app.docs[0].bookmarks.toggle(&before.text, 1);
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(&mut app, &ctx, Default::default());
+    click(&mut app, &ctx, text_center(&output, "Edit"));
+    let output = frame(&mut app, &ctx, Default::default());
+    click(&mut app, &ctx, text_center(&output, "Line operations"));
+    let output = frame(&mut app, &ctx, Default::default());
+    click(&mut app, &ctx, text_center(&output, "Sort lines ascending"));
+    assert_eq!(app.docs[0].content.text, "a\nz\nz\n中文🙂\n");
+    assert!(app.docs[0].bookmarks.lines.is_empty());
+    shortcut(&mut app, &ctx, egui::Key::Z, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content, before);
+    assert!(!app.docs[0].history.can_undo());
+}
+
 #[test]
 fn tab_keyboard_cycle_preserves_dirty_format_history_and_wraps() {
     let ctx = egui::Context::default();

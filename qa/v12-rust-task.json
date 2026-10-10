@@ -1,0 +1,93 @@
+{
+  "task": "InkPage 0.12 Notepad++ alignment",
+  "goal": "Display-only word wrap and font zoom, language comments, line sort/reverse/deduplication, and a verified portable package",
+  "project_root": "C:/Users/steven/Documents/Codex/2026-10-09/task-4/RustPad",
+  "primary_skill": "rust-engineering",
+  "supporting_skills": [
+    "rust-workbench",
+    "rust-quality",
+    "NAS rust-skills 1.0.0"
+  ],
+  "allowed_changes": [
+    "InkPage source, tests, locale catalog, version, public docs, QA records",
+    "new 0.12 portable deliverable"
+  ],
+  "constraints": [
+    "Preserve committed 0.11 functionality and prior packages",
+    "Use existing dependencies and storage formats",
+    "Do not modify installed skills or global configuration",
+    "No automatic commit, push, PR or release publication"
+  ],
+  "observations": [
+    "Baseline d899601 at 0.11.0 was clean",
+    "Toolchain rustc/cargo 1.99.0; host x86_64-pc-windows-msvc",
+    "Single binary crate; grammar license example; no doc-testable library",
+    "Local Rust skill bundle became available during the task"
+  ],
+  "changes": [
+    "editor_view module scales borrowed layout jobs and draws physical-line gutter across soft rows",
+    "textops builds owned, validated candidates from borrowed lines and returns Result",
+    "App commits a candidate once, keeping format and one undo entry",
+    "New commands use four interface locales",
+    "Version and own Cargo.lock package changed to 0.12.0; dependency versions/features/ABI and stored data formats unchanged"
+  ],
+  "validation": [
+    {
+      "case": "New GUI line-menu undo initially failed because the menu click removed editor focus",
+      "status": "passed",
+      "resolution": "Request editor focus after widget input; unchanged assertion then passed"
+    },
+    {
+      "case": "Soft wrap, source gutter and real EOL, copied Unicode, paste undo, zoom bounds/focus/UI scale, comments shortcut and unsupported JSON, sorting menu",
+      "status": "passed",
+      "evidence": "v12-rust-verification.json"
+    },
+    {
+      "case": "Complete target tests",
+      "status": "passed",
+      "passed": 101,
+      "failed": 0,
+      "ignored": 1,
+      "evidence": "v12-rust-verification.json"
+    },
+    {
+      "case": "Native Windows Shell message integration",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "evidence": "v12-native-drop.log"
+    },
+    {
+      "case": "Quality skill planned then executed fmt/check/clippy/tests",
+      "status": "passed",
+      "exit_code": 0,
+      "evidence": "v12-rust-verification.json"
+    },
+    {
+      "case": "Release build",
+      "status": "passed",
+      "exit_code": 0,
+      "command": "cargo build --release --locked -j1",
+      "executable_sha256": "f70a3356c0742a04bdb3bb7b0a346cce77814e3275af1f02c9b5c0b946768ff3"
+    },
+    {
+      "case": "Eight release captures and one native drop capture visually reviewed",
+      "status": "passed",
+      "evidence": "v12-capture-verification.json"
+    },
+    {
+      "case": "Packaged EXE running in Simplified Chinese; no config/session created; icon/version/exact file bytes verified",
+      "status": "passed",
+      "evidence": "v12-package-verification.json"
+    }
+  ],
+  "open_risks": [
+    "Native physical keyboard/mouse/dialog/clipboard and complete IME flows not run",
+    "Linux GUI/target and remote CI not run for this local patch",
+    "No performance or security-wide claims",
+    "Font/wrap preferences are per-process across tabs; block comments are per-line; reordered text clears bookmarks"
+  ],
+  "status": "complete",
+  "change_brief": "DIFF-0.12.md",
+  "deliverable": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\deliverables\\InkPage-0.12.0-windows-x64.zip"
+}

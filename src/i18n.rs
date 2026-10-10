@@ -54,6 +54,7 @@ impl Locale {
                 "快照保存失敗，前次快照保留：{0}",
             ),
             ("語系設定未保存：", "語系設定未保存：{0}"),
+            ("文字處理失敗：", "文字處理失敗：{0}"),
         ] {
             if let Some(error) = source.strip_prefix(prefix) {
                 return Cow::Owned(self.format(key, &[&self.message(error)]));
@@ -256,6 +257,13 @@ mod tests {
                 assert_eq!(expected, actual, "{}", row[0]);
             }
         }
+        for label in crate::textops::LineCommand::ALL
+            .map(|command| command.label())
+            .into_iter()
+            .chain(crate::textops::CommentCommand::ALL.map(|command| command.label()))
+        {
+            assert!(keys.contains(label), "missing command translation: {label}");
+        }
         let lookup = regex::Regex::new(r#"locale\.(?:text|format)\(\s*"([^"]+)""#).unwrap();
         for captures in lookup.captures_iter(include_str!("main.rs")) {
             assert!(
@@ -303,6 +311,10 @@ mod tests {
             "Open failed: Contains NUL; possibly a binary file"
         );
         assert_eq!(Locale::English.message(literal), literal);
+        assert_eq!(
+            Locale::English.message("文字處理失敗：目前語言未定義註解"),
+            "Text operation failed: No comments defined for this language"
+        );
         assert_eq!(
             Locale::English.message("搜尋已取消：2 處／1 檔，略過 3；已達限制，結果不完整"),
             "Search cancelled: 2 matches / 1 files, 3 skipped; limit reached, incomplete results"

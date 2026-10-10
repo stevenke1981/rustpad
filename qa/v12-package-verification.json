@@ -1,0 +1,44 @@
+{
+  "version": "0.12.0",
+  "status": "passed",
+  "baseline_commit": "d899601",
+  "source_state": "local working-tree patch; not committed",
+  "package": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\deliverables\\InkPage-0.12.0-windows-x64.zip",
+  "package_bytes": 6978918,
+  "package_sha256": "b2e6b27cbcdc160d2a8b8f21ef9f86de4e0049f438b97220c97dff2dad0a6d63",
+  "executable_bytes": 8120320,
+  "executable_sha256": "f70a3356c0742a04bdb3bb7b0a346cce77814e3275af1f02c9b5c0b946768ff3",
+  "extracted_executable": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\deliverables\\InkPage-0.12.0\\InkPage\\InkPage.exe",
+  "entries": 351,
+  "checks": [
+    "ZIP CRC",
+    "exact release/extracted EXE bytes",
+    "docs and selected synthetic QA match source",
+    "original icon and licenses",
+    "no config/session/lock/build cache",
+    "safe extraction paths"
+  ],
+  "smoke": {
+    "status": "passed",
+    "exit_code": 0,
+    "arguments": [
+      "--screenshot",
+      "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-packaged.png",
+      "--qa-flow",
+      "wrap",
+      "--narrow",
+      "--lang",
+      "zh-CN",
+      "--no-session",
+      "--no-settings"
+    ],
+    "screenshot": "C:\\Users\\steven\\Documents\\Codex\\2026-10-09\\task-4\\RustPad\\qa\\v12-packaged.png",
+    "screenshot_pixels": [
+      950,
+      525
+    ],
+    "extracted_tree_unchanged": true,
+    "icon_version_verified": true
+  },
+  "resolved_verifier_issue": "Initial verification used inkpage.ico; corrected to actual case-sensitive archive entry InkPage.ico. No package change needed."
+}
