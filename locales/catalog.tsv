@@ -280,3 +280,10 @@ grammar span 未涵蓋完整原文	grammar span 未覆盖完整原文	Grammar sp
 文字處理完成；Ctrl+Z 可復原	文字处理完成；Ctrl+Z 可撤销	Text operation complete; Ctrl+Z to undo	文字処理が完了；Ctrl+Z で元に戻せます
 文字處理失敗：{0}	文字处理失败：{0}	Text operation failed: {0}	文字処理に失敗：{0}
 選取內容包含區塊註解界符，未修改	选中内容包含块注释分隔符，未修改	Selection contains block comment delimiters; unchanged	選択範囲にブロックコメントの区切りがあります；変更なし
+複製選取文字／目前行    Ctrl+D	复制选中文字／当前行    Ctrl+D	Duplicate selection/current line    Ctrl+D	選択範囲／現在行を複製    Ctrl+D
+上移選取行／目前行    Ctrl+Shift+↑	上移选中行／当前行    Ctrl+Shift+↑	Move selected/current lines up    Ctrl+Shift+↑	選択行／現在行を上へ    Ctrl+Shift+↑
+下移選取行／目前行    Ctrl+Shift+↓	下移选中行／当前行    Ctrl+Shift+↓	Move selected/current lines down    Ctrl+Shift+↓	選択行／現在行を下へ    Ctrl+Shift+↓
+選取目前行    Ctrl+Alt+L	选择当前行    Ctrl+Alt+L	Select current line    Ctrl+Alt+L	現在行を選択    Ctrl+Alt+L
+複製目前行	复制当前行	Duplicate current line	現在行を複製
+已選取目前行	已选择当前行	Current line selected	現在行を選択しました
+邊界或內容相同；未修改	边界或内容相同；未修改	Boundary or identical content; unchanged	境界または同一内容；変更なし

@@ -1,6 +1,94 @@
 use crate::{App, app_tests, i18n};
 use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, Rect, vec2};
 
+#[test]
+fn v13_duplicate_shortcut_duplicates_only_selected_unicode_and_is_one_undo() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.docs[0].content = crate::core::Content {
+        text: "外甲🙂尾\n".into(),
+        bom: true,
+        newline: crate::core::Newline::Crlf,
+    };
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    app.docs[0].selected = (1, 3);
+    app.docs[0].cursor = 3;
+    app.selection = Some((1, 3));
+    frame(&mut app, &ctx, Default::default());
+    shortcut(&mut app, &ctx, egui::Key::D, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content.text, "外甲🙂甲🙂尾\n");
+    assert_eq!(app.docs[0].selected, (3, 5));
+    shortcut(&mut app, &ctx, egui::Key::Z, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content, before);
+    assert!(!app.docs[0].history.can_undo());
+}
+
+#[test]
+fn v13_move_shortcuts_keep_unicode_block_selection_and_format() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.docs[0].content = crate::core::Content {
+        text: "外\n甲🙂\n乙\n尾".into(),
+        bom: true,
+        newline: crate::core::Newline::Crlf,
+    };
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    app.docs[0].selected = (2, 7);
+    app.docs[0].cursor = 7;
+    app.selection = Some((2, 7));
+    frame(&mut app, &ctx, Default::default());
+    shortcut(
+        &mut app,
+        &ctx,
+        egui::Key::ArrowUp,
+        Modifiers::CTRL | Modifiers::SHIFT,
+    );
+    assert_eq!(app.docs[0].content.text, "甲🙂\n乙\n外\n尾");
+    assert_eq!(app.docs[0].selected, (0, 5));
+    assert!(
+        ctx.memory(|m| m.has_focus(egui::Id::new(("editor", app.docs[0].id)))),
+        "move must keep editor focus"
+    );
+    shortcut(
+        &mut app,
+        &ctx,
+        egui::Key::ArrowDown,
+        Modifiers::CTRL | Modifiers::SHIFT,
+    );
+    assert_eq!(app.docs[0].content, before);
+    assert_eq!(app.docs[0].selected, (2, 7));
+    shortcut(&mut app, &ctx, egui::Key::Z, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content.text, "甲🙂\n乙\n外\n尾");
+}
+
+#[test]
+fn v13_select_current_line_is_not_dirty_and_ignores_search_focus() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.docs[0].content.text = "a\n甲🙂\n尾".into();
+    app.docs[0].saved = app.docs[0].content.clone();
+    app.docs[0].selected = (3, 3);
+    app.docs[0].cursor = 3;
+    app.selection = Some((3, 3));
+    frame(&mut app, &ctx, Default::default());
+    shortcut(
+        &mut app,
+        &ctx,
+        egui::Key::L,
+        Modifiers::CTRL | Modifiers::ALT,
+    );
+    assert_eq!(app.docs[0].selected, (2, 5));
+    assert!(!app.docs[0].dirty());
+    assert!(!app.docs[0].history.can_undo());
+    app.search = true;
+    frame(&mut app, &ctx, Default::default());
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("find-query")));
+    shortcut(&mut app, &ctx, egui::Key::D, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content.text, "a\n甲🙂\n尾");
+}
+
 fn frame(app: &mut App, ctx: &egui::Context, mut input: egui::RawInput) -> egui::FullOutput {
     input
         .screen_rect
@@ -8,6 +96,50 @@ fn frame(app: &mut App, ctx: &egui::Context, mut input: egui::RawInput) -> egui:
     let mut frame = eframe::Frame::_new_kittest();
     eframe::App::raw_input_hook(app, ctx, &mut input);
     ctx.run(input, |ctx| eframe::App::update(app, ctx, &mut frame))
+}
+
+#[test]
+fn v13_move_menu_keeps_focus_for_undo_and_ime_input_does_not_duplicate() {
+    let ctx = egui::Context::default();
+    let mut app = app_tests::app();
+    app.locale = i18n::Locale::English;
+    app.docs[0].content.text = "outer\n中文🙂\ntail".into();
+    app.docs[0].saved = app.docs[0].content.clone();
+    let before = app.docs[0].content.clone();
+    app.docs[0].selected = (6, 6);
+    app.docs[0].cursor = 6;
+    app.selection = Some((6, 6));
+    frame(&mut app, &ctx, Default::default());
+    let output = frame(&mut app, &ctx, Default::default());
+    click(&mut app, &ctx, text_center(&output, "Edit"));
+    let output = frame(&mut app, &ctx, Default::default());
+    click(&mut app, &ctx, text_center(&output, "Line operations"));
+    let output = frame(&mut app, &ctx, Default::default());
+    click(
+        &mut app,
+        &ctx,
+        text_center(&output, "Move selected/current lines up    Ctrl+Shift+↑"),
+    );
+    assert_eq!(app.docs[0].content.text, "中文🙂\nouter\ntail");
+    shortcut(&mut app, &ctx, egui::Key::Z, Modifiers::CTRL);
+    assert_eq!(app.docs[0].content, before);
+    let mut input = egui::RawInput {
+        events: vec![
+            Event::Ime(egui::ImeEvent::Preedit("字".into())),
+            Event::Key {
+                key: egui::Key::D,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::CTRL,
+            },
+        ],
+        ..Default::default()
+    };
+    app.selection_input(&ctx, &mut input);
+    assert_eq!(input.events.len(), 2);
+    assert_eq!(app.docs[0].content, before);
+    assert!(!app.docs[0].history.can_undo());
 }
 
 fn shortcut(

@@ -21,6 +21,10 @@ with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as arch
         archive.write(root / name, "InkPage/" + name)
     for name in ("v12-wrap-light.png", "v12-wrap-dark.png", "v12-wrap-zoom.png", "v12-wrap-en.png", "v12-wrap-ja.png", "v12-comments.png", "v12-lines.png", "v12-fold-zoom.png", "v12-native-drop.png", "v12-rust-plan.json", "v12-rust-verification.json", "v12-capture-verification.json", "v12-icon-resources.json", "v12-native-drop.log"):
         archive.write(root / "qa" / name, "InkPage/qa/" + name)
+    for name in ("DIFF-0.13.md", "QA-0.13.md"):
+        archive.write(root / name, "InkPage/" + name)
+    for name in ("v13-move-light.png", "v13-move-dark.png", "v13-duplicate.png", "v13-duplicate-dark.png", "v13-move-en.png", "v13-move-ja.png", "v13-icon-resources.json"):
+        archive.write(root / "qa" / name, "InkPage/qa/" + name)
     for path in sorted((root / "licenses").rglob("*")):
         if path.is_file():
             archive.write(path, "InkPage/" + path.relative_to(root).as_posix())

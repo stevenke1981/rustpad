@@ -77,7 +77,7 @@ pub(super) struct Edit {
     pub selection: (usize, usize),
 }
 
-fn byte_position(text: &str, index: usize) -> Result<usize, String> {
+pub(super) fn byte_position(text: &str, index: usize) -> Result<usize, String> {
     text.char_indices()
         .map(|(offset, _)| offset)
         .chain(std::iter::once(text.len()))
@@ -86,7 +86,7 @@ fn byte_position(text: &str, index: usize) -> Result<usize, String> {
 }
 
 /// A selection ending exactly at the next line start excludes that next line.
-fn line_range(
+pub(super) fn line_range(
     text: &str,
     selection: (usize, usize),
     whole_if_empty: bool,

@@ -19,6 +19,7 @@ mod native_drop;
 mod native_drop_tests;
 mod pattern;
 mod perf;
+mod selectionops;
 mod session;
 mod structure;
 mod syntax;
@@ -1134,6 +1135,7 @@ impl App {
 impl eframe::App for App {
     fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
         self.editor_view_input(ctx, input);
+        self.selection_input(ctx, input);
         if let Some(position) = self.qa_hover {
             input.events.push(egui::Event::PointerMoved(position));
             ctx.style_mut(|style| style.interaction.tooltip_delay = 0.);
@@ -1255,6 +1257,7 @@ impl eframe::App for App {
         let mut line_action = None;
         let mut text_command = None;
         let mut indent_action = None;
+        let mut selection_command = None;
         let mut bracket = false;
         let mut folding = false;
         let mut unfolding = false;
@@ -1345,9 +1348,6 @@ impl eframe::App for App {
                 {
                     text_command = Some(textops::Command::Comment(textops::CommentCommand::Toggle));
                 }
-                if i.consume_key(Modifiers::CTRL, Key::D) {
-                    edit_action = Some(actions::Edit::DuplicateLine);
-                }
                 if i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::K) {
                     edit_action = Some(actions::Edit::DeleteLine);
                 }
@@ -1411,6 +1411,13 @@ impl eframe::App for App {
                             }
                         });
                         ui.menu_button(locale.text("行操作"), |ui| {
+                            for command in selectionops::Command::ALL {
+                                if ui.button(locale.text(command.label())).clicked() {
+                                    selection_command = Some(command);
+                                    ui.close();
+                                }
+                            }
+                            ui.separator();
                             ui.label(locale.text("選取時處理整行；未選取時處理全文"));
                             for command in textops::LineCommand::ALL {
                                 if ui.button(locale.text(command.label())).clicked() {
@@ -1462,7 +1469,7 @@ impl eframe::App for App {
                         ui.add(egui::DragValue::new(&mut self.split_width).range(1..=1000));
                     });
                     ui.separator();
-                    if ui.button(locale.text("複製目前行    Ctrl+D")).clicked() {
+                    if ui.button(locale.text("複製目前行")).clicked() {
                         edit_action = Some(actions::Edit::DuplicateLine);
                     }
                     if ui
@@ -2007,6 +2014,9 @@ impl eframe::App for App {
         if let Some(command) = text_command {
             self.text_command(command);
         }
+        if let Some(command) = selection_command {
+            self.selection_command(command);
+        }
         if let Some(action) = indent_action {
             self.indent_action(action);
         }
@@ -2393,6 +2403,8 @@ fn native_options() -> eframe::NativeOptions {
                 [1080., 720.]
             })
             .with_min_inner_size([760., 420.])
+            // QA creates its own inactive viewport; never activate a user's window.
+            .with_active(!std::env::args().any(|arg| arg == "--screenshot"))
             // Windows Explorer uses WM_DROPFILES with our Shell receiver.
             // Leave winit's OLE receiver disabled so it cannot intercept the drop.
             .with_drag_and_drop(!cfg!(windows))
@@ -2527,6 +2539,31 @@ fn main() -> eframe::Result {
                             textops::CommentCommand::Toggle,
                         ));
                         app.show_eol = true;
+                        app.search = false;
+                    }
+                    "line-move" => {
+                        app.docs[0].path = Some(PathBuf::from("行編輯_demo.txt"));
+                        app.docs[0].content = Content { text: "選取外（上）\n甲🙂與組合字 e\u{301}\n乙：整段向上移動\n選取外（下）\n".into(), bom: true, newline: Newline::Crlf };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        let start = actions::goto_line(&app.docs[0].content.text, 2).unwrap();
+                        let end = actions::goto_line(&app.docs[0].content.text, 4).unwrap();
+                        app.docs[0].selected = (start, end);
+                        app.docs[0].cursor = end;
+                        app.selection_command(selectionops::Command::MoveUp);
+                        app.show_eol = true;
+                        app.search = false;
+                    }
+                    "selection-duplicate" => {
+                        app.docs[0].path = Some(PathBuf::from("選取複製_demo.txt"));
+                        app.docs[0].content = Content {
+                            text: "外｜甲🙂e\u{301}｜尾\n第二行不變\n".into(),
+                            bom: true,
+                            newline: Newline::Crlf,
+                        };
+                        app.docs[0].saved = app.docs[0].content.clone();
+                        app.docs[0].selected = (2, 6);
+                        app.docs[0].cursor = 6;
+                        app.selection_command(selectionops::Command::Duplicate);
                         app.search = false;
                     }
                     "lines-sort" => {
